@@ -43,7 +43,7 @@ function RegisterPage() {
     { value: string; label: string }[]
   >([]);
   const [branches, setBranches] = useState<{ value: string; label: string }[]>(
-    []
+    [],
   );
   const [departments, setDepartments] = useState<
     { value: string; label: string }[]
@@ -72,7 +72,8 @@ function RegisterPage() {
   });
   const [signatureError, setSignatureError] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showPasswordConfirmation, setShowPasswordConfirmation] = useState(false);
+  const [showPasswordConfirmation, setShowPasswordConfirmation] =
+    useState(false);
   const [fieldErrors, setFieldErrors] = useState<{
     [key: string]: any;
   }>({});
@@ -139,7 +140,6 @@ function RegisterPage() {
     );
   };
 
-
   // Load positions from client data service.api
   useEffect(() => {
     const fetchData = async () => {
@@ -170,7 +170,7 @@ function RegisterPage() {
     title: string,
     description: string,
     type: "success" | "error" | "warning" | "info",
-    onConfirm?: () => void
+    onConfirm?: () => void,
   ) => {
     setAlertDialog({
       open: true,
@@ -271,7 +271,7 @@ function RegisterPage() {
       showAlert(
         "Invalid Employee ID",
         "Employee ID must be in format: 1234-567890 (4 digits, dash, 6 digits)",
-        "error"
+        "error",
       );
       return;
     }
@@ -287,7 +287,7 @@ function RegisterPage() {
       showAlert(
         "Invalid Email",
         "Please enter a valid email address!",
-        "error"
+        "error",
       );
       return;
     }
@@ -304,19 +304,19 @@ function RegisterPage() {
         showAlert(
           "Invalid Contact Number",
           "Contact number must be exactly 11 digits!",
-          "error"
+          "error",
         );
       } else if (!formData.contact.startsWith("09")) {
         showAlert(
           "Invalid Contact Number",
           "Contact number must start with 09!",
-          "error"
+          "error",
         );
       } else {
         showAlert(
           "Invalid Contact Number",
           "Please enter a valid contact number!",
-          "error"
+          "error",
         );
       }
       return;
@@ -346,7 +346,7 @@ function RegisterPage() {
       showAlert(
         "Missing Information",
         "Department is required for Head Office branches!",
-        "error"
+        "error",
       );
       return;
     }
@@ -356,7 +356,7 @@ function RegisterPage() {
       showAlert(
         "Password Mismatch",
         "Passwords do not match! Please try again.",
-        "error"
+        "error",
       );
       return;
     }
@@ -366,7 +366,7 @@ function RegisterPage() {
       showAlert(
         "Password Too Short",
         "Password must be at least 8 characters long!",
-        "warning"
+        "warning",
       );
       return;
     }
@@ -377,19 +377,20 @@ function RegisterPage() {
       showAlert(
         "Weak Password",
         "Password must contain at least one uppercase letter, one lowercase letter, and one number!",
-        "warning"
+        "warning",
       );
       return;
     }
 
     // Validate signature - check both formData and ref (SignaturePad stores locally)
-    const signatureToValidate = signaturePadRef.current?.getSignature() || formData.signature;
+    const signatureToValidate =
+      signaturePadRef.current?.getSignature() || formData.signature;
     if (!signatureToValidate) {
       setSignatureError(true);
       showAlert(
         "Signature Required",
         "Please draw your digital signature to complete the registration!",
-        "warning"
+        "warning",
       );
       return;
     }
@@ -398,7 +399,8 @@ function RegisterPage() {
     // Then send the POST request with the user registration data
 
     // Get the current signature from SignaturePad (may be local, not in formData yet)
-    const currentSignature = signaturePadRef.current?.getSignature() || formData.signature;
+    const currentSignature =
+      signaturePadRef.current?.getSignature() || formData.signature;
 
     const formDataToUpload = new FormData();
 
@@ -408,7 +410,7 @@ function RegisterPage() {
     // Remove dash from employee_id before sending (keep only numbers)
     formDataToUpload.append(
       "employee_id",
-      formData.employee_id.replace(/-/g, "")
+      formData.employee_id.replace(/-/g, ""),
     );
     formDataToUpload.append("email", formData.email);
     formDataToUpload.append("contact", formData.contact);
@@ -419,16 +421,13 @@ function RegisterPage() {
     formDataToUpload.append("password", formData.password);
     formDataToUpload.append(
       "password_confirmation",
-      formData.password_confirmation
+      formData.password_confirmation,
     );
 
     // Convert signature data URL to File object (PNG) for binary upload
     if (currentSignature) {
       try {
-        const signatureFile = dataURLtoFile(
-          currentSignature,
-          "signature.png"
-        );
+        const signatureFile = dataURLtoFile(currentSignature, "signature.png");
 
         // Verify file was created correctly
         if (!signatureFile || !(signatureFile instanceof File)) {
@@ -442,9 +441,8 @@ function RegisterPage() {
 
         formDataToUpload.append("signature", signatureFile);
 
-        const data = await apiService.createPendingRegistration(
-          formDataToUpload
-        );
+        const data =
+          await apiService.createPendingRegistration(formDataToUpload);
 
         showAlert(
           "Registration Successful!",
@@ -470,7 +468,7 @@ function RegisterPage() {
             setSignatureError(false);
             // Redirect to login page
             window.location.href = "/";
-          }
+          },
         );
       } catch (error: any) {
         if (error.response?.data?.errors) {
@@ -702,7 +700,7 @@ function RegisterPage() {
                       )}
                     </div>
 
-                    <div className="space-y-2 w-1/4">
+                    <div className="space-y-2 w-full">
                       <Label htmlFor="employee_id">Employee ID</Label>
                       <Input
                         id="employee_id"
@@ -809,18 +807,24 @@ function RegisterPage() {
                       )}
                     </div>
 
-                    <div className="space-y-2 w-1/2">
+                    <div className="space-y-2 w-full">
                       <Label htmlFor="date_hired">Date Hired</Label>
                       <Input
                         id="date_hired"
                         type="date"
                         value={formData.date_hired}
                         onChange={(e) => {
-                          setFormData({ ...formData, date_hired: e.target.value });
+                          setFormData({
+                            ...formData,
+                            date_hired: e.target.value,
+                          });
                           validateField("date_hired", e.target.value);
                         }}
-                        className={fieldErrors?.date_hired ? "border-red-500 cursor-pointer" : ""}
-                        
+                        className={
+                          fieldErrors?.date_hired
+                            ? "border-red-500 cursor-pointer"
+                            : ""
+                        }
                       />
                       {fieldErrors?.date_hired && (
                         <p className="text-sm text-red-500">
@@ -835,7 +839,10 @@ function RegisterPage() {
                         options={positions}
                         value={formData.position_id}
                         onValueChangeAction={(value) => {
-                          const newFormData = { ...formData, position_id: value };
+                          const newFormData = {
+                            ...formData,
+                            position_id: value,
+                          };
                           // Clear department if position is Branch Manager or Area Manager
                           if (isManagerPosition(value)) {
                             newFormData.department_id = "";
@@ -845,7 +852,7 @@ function RegisterPage() {
                         placeholder="Select your position"
                         searchPlaceholder="Search positions..."
                         emptyText="No positions found."
-                        className="w-1/2 cursor-pointer hover:scale-105 transition-all duration-300"
+                        className="w-full cursor-pointer hover:scale-101 transition-all duration-300"
                       />
                       {fieldErrors?.position_id && (
                         <p className="text-sm text-red-500">
@@ -870,7 +877,7 @@ function RegisterPage() {
                         placeholder="Select your branch"
                         searchPlaceholder="Search branches..."
                         emptyText="No branches found."
-                        className="w-1/2 cursor-pointer hover:scale-105 transition-all duration-300"
+                        className="w-full cursor-pointer hover:scale-101 transition-all duration-300"
                       />
                       {fieldErrors?.branch_id && (
                         <p className="text-sm text-red-500">
@@ -880,28 +887,29 @@ function RegisterPage() {
                     </div>
 
                     {/* Department - Show only if branch is HO, Head Office, or none, AND position is NOT Branch Manager or Area Manager */}
-                    {isBranchHOOrNone(formData.branch_id) && !isManagerPosition(formData.position_id) && (
-                      <div className="space-y-2">
-                        <Label htmlFor="department">Department</Label>
-                        <Combobox
-                          options={departments}
-                          value={String(formData.department_id)}
-                          onValueChangeAction={(value) =>
-                            setFormData({ ...formData, department_id: value })
-                          }
-                          placeholder="Select your department"
-                          searchPlaceholder="Search departments..."
-                          emptyText="No departments found."
-                          className="w-1/2 cursor-pointer hover:scale-105 transition-all duration-300"
-                          disabled={isManagerPosition(formData.position_id)}
-                        />
-                        {fieldErrors?.department_id && (
-                          <p className="text-sm text-red-500">
-                            {fieldErrors?.department_id}
-                          </p>
-                        )}
-                      </div>
-                    )}
+                    {isBranchHOOrNone(formData.branch_id) &&
+                      !isManagerPosition(formData.position_id) && (
+                        <div className="space-y-2">
+                          <Label htmlFor="department">Department</Label>
+                          <Combobox
+                            options={departments}
+                            value={String(formData.department_id)}
+                            onValueChangeAction={(value) =>
+                              setFormData({ ...formData, department_id: value })
+                            }
+                            placeholder="Select your department"
+                            searchPlaceholder="Search departments..."
+                            emptyText="No departments found."
+                            className="w-1/2 cursor-pointer hover:scale-105 transition-all duration-300"
+                            disabled={isManagerPosition(formData.position_id)}
+                          />
+                          {fieldErrors?.department_id && (
+                            <p className="text-sm text-red-500">
+                              {fieldErrors?.department_id}
+                            </p>
+                          )}
+                        </div>
+                      )}
 
                     <div className="space-y-2">
                       <Label htmlFor="registerPassword">Password</Label>
@@ -919,14 +927,18 @@ function RegisterPage() {
                             validateField("password", e.target.value);
                           }}
                           className={
-                            fieldErrors?.password ? "border-red-500 pr-10" : "pr-10"
+                            fieldErrors?.password
+                              ? "border-red-500 pr-10"
+                              : "pr-10"
                           }
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
-                          aria-label={showPassword ? "Hide password" : "Show password"}
+                          aria-label={
+                            showPassword ? "Hide password" : "Show password"
+                          }
                         >
                           {showPassword ? (
                             <EyeOff className="h-5 w-5" />
@@ -959,7 +971,7 @@ function RegisterPage() {
                             });
                             validateField(
                               "password_confirmation",
-                              e.target.value
+                              e.target.value,
                             );
                           }}
                           className={
@@ -970,9 +982,17 @@ function RegisterPage() {
                         />
                         <button
                           type="button"
-                          onClick={() => setShowPasswordConfirmation(!showPasswordConfirmation)}
+                          onClick={() =>
+                            setShowPasswordConfirmation(
+                              !showPasswordConfirmation,
+                            )
+                          }
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
-                          aria-label={showPasswordConfirmation ? "Hide password" : "Show password"}
+                          aria-label={
+                            showPasswordConfirmation
+                              ? "Hide password"
+                              : "Show password"
+                          }
                         >
                           {showPasswordConfirmation ? (
                             <EyeOff className="h-5 w-5" />
@@ -1090,7 +1110,6 @@ function RegisterPage() {
         type={alertDialog.type}
         onConfirm={alertDialog.onConfirm}
         confirmText="OK"
-        
       />
     </div>
   );
