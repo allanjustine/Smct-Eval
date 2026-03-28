@@ -31,7 +31,7 @@ export const useAutoRefresh = ({
   gifPath = "/search-file.gif",
   duration = 2000
 }: UseAutoRefreshOptions): UseAutoRefreshReturn => {
-  const { profile, isAuthenticated, isLoading: authLoading } = useUser();
+  const { user, isAuthenticated, isLoading: authLoading } = useUser();
   const { success } = useToast();
   const hasAutoRefreshed = useRef(false);
   const [showRefreshModal, setShowRefreshModal] = useState(false);
@@ -73,7 +73,7 @@ export const useAutoRefresh = ({
 
   // Auto-refresh when user logs in (only once per login)
   useEffect(() => {
-    if (isAuthenticated && profile && !authLoading && !hasAutoRefreshed.current) {
+    if (isAuthenticated && user && !authLoading && !hasAutoRefreshed.current) {
       hasAutoRefreshed.current = true;
       const autoRefresh = async () => {
         try {
@@ -91,7 +91,7 @@ export const useAutoRefresh = ({
       const refreshTimer = setTimeout(autoRefresh, 500);
       return () => clearTimeout(refreshTimer);
     }
-  }, [isAuthenticated, profile, authLoading, customMessage, dashboardName, success]);
+  }, [isAuthenticated, user, authLoading, customMessage, dashboardName, success]);
 
   // Reset auto-refresh flag when user logs out
   useEffect(() => {

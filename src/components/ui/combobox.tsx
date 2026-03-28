@@ -28,7 +28,6 @@ interface ComboboxProps {
   emptyText?: string;
   className?: string;
   disabled?: boolean;
-  error?: null | string;
 }
 
 export function Combobox({
@@ -40,25 +39,36 @@ export function Combobox({
   emptyText = "No option found.",
   className,
   disabled = false,
-  error = null,
 }: ComboboxProps) {
   const [open, setOpen] = React.useState(false);
   const [searchTerm, setSearchTerm] = React.useState("");
 
   // Helper function to get option display text
-  const getOptionText = (option: string | ComboboxOption): string => {
-    return typeof option === "string" ? option : option.label;
+  const getOptionText = (option: any) => {
+    if (!option) return "";
+    return typeof option === "string"
+      ? option
+      : option.label || option.text || "";
   };
 
   // Helper function to get option value
   const getOptionValue = (option: string | ComboboxOption): number | string => {
-    return typeof option === "string" ? Number(option) : option.value;
+    if (!option) return "";
+    return typeof option === "string" ? Number(option) : (option.value ?? "");
   };
 
+  // Ensure options is always an array
+  const safeOptions = Array.isArray(options) ? options : [];
+
   // Filter options based on search term
-  const filteredOptions = options?.filter((option) =>
-    getOptionText(option)?.toLowerCase()?.includes(searchTerm.toLowerCase())
-  );
+  const filteredOptions = safeOptions.filter((option) => {
+    if (!option) return false;
+    const optionText = getOptionText(option);
+    return (
+      typeof optionText === "string" &&
+      optionText.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  });
 
   return (
     <>
@@ -71,15 +81,14 @@ export function Combobox({
             className={cn(
               "w-full justify-between",
               !value && "text-muted-foreground",
-              className,
-              error && "border-red-500"
+              className
             )}
             disabled={disabled}
           >
             {value
               ? (() => {
-                  const selectedOption = options.find(
-                    (option) => getOptionValue(option) === value
+                  const selectedOption = safeOptions.find(
+                    (option) => option && String(getOptionValue(option)) === String(value)
                   );
                   return selectedOption ? getOptionText(selectedOption) : value;
                 })()
@@ -87,7 +96,11 @@ export function Combobox({
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-full p-0" align="start">
+        <PopoverContent
+          className="w-[var(--radix-popover-trigger-width)] p-0"
+          align="start"
+          sideOffset={4}
+        >
           <div className="p-2">
             <div className="relative">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -99,7 +112,7 @@ export function Combobox({
               />
             </div>
           </div>
-          <div className="max-h-60 overflow-auto">
+          <div className="max-h-48 overflow-auto">
             {filteredOptions?.length === 0 ? (
               <div className="p-4 text-sm text-muted-foreground text-center">
                 {emptyText}
@@ -111,7 +124,8 @@ export function Combobox({
                     key={typeof option === "string" ? option : option.value}
                     className={cn(
                       "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
-                      value === getOptionValue(option) && "bg-accent"
+                      String(value) === String(getOptionValue(option)) &&
+                        "bg-accent"
                     )}
                     onClick={() => {
                       onValueChangeAction(getOptionValue(option));
@@ -122,7 +136,7 @@ export function Combobox({
                     <Check
                       className={cn(
                         "mr-2 h-4 w-4",
-                        value === getOptionValue(option)
+                        String(value) === String(getOptionValue(option))
                           ? "opacity-100"
                           : "opacity-0"
                       )}
@@ -135,7 +149,6 @@ export function Combobox({
           </div>
         </PopoverContent>
       </Popover>
-      {error && <small className="text-red-500">{error[0]}</small>}
     </>
   );
 }

@@ -34,7 +34,7 @@ export default function EmployeeSignatureApproval({
   record,
   onApprovalSuccess
 }: EmployeeSignatureApprovalProps) {
-  const { profile, user } = useUser();
+  const { user } = useUser();
   const { approveWithSignature, loading, error } = useEmployeeSignatureApproval();
   
   const [approvalComments, setApprovalComments] = useState('');
@@ -42,21 +42,25 @@ export default function EmployeeSignatureApproval({
 
   // Check if user has signature
   useEffect(() => {
-    if (profile?.signature || user?.signature) {
+    if (user?.signature) {
       setHasSignature(true);
     } else {
       setHasSignature(false);
     }
-  }, [profile, user]);
+  }, [user]);
 
   const handleApprove = async () => {
     if (!record || !hasSignature) return;
 
     try {
+      const employeeName = user?.fname && user?.lname 
+        ? `${user.fname} ${user.lname}` 
+        : user?.fname || user?.lname || '';
+      
       const approvalData = {
-        employeeSignature: profile?.signature || user?.signature || '',
-        employeeName: profile?.name || user?.name || '',
-        employeeEmail: profile?.email || user?.email || '',
+        employeeSignature: user?.signature || '',
+        employeeName: employeeName,
+        employeeEmail: user?.email || '',
         comments: approvalComments.trim() || undefined
       };
 
@@ -83,7 +87,7 @@ export default function EmployeeSignatureApproval({
   if (!record) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
+    <Dialog open={isOpen} onOpenChangeAction={handleClose}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">

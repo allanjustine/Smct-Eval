@@ -1,7 +1,6 @@
 // src/lib/evaluationRecordsService.ts
 
-import { EvaluationData } from '@/components/evaluation/types';
-import submissionsData from '@/data/submissions.json';
+import { EvaluationPayload } from '@/components/evaluation/types';
 import { createApprovalNotification, createFullyApprovedNotification } from './notificationUtils';
 
 export interface EvaluationRecord {
@@ -15,7 +14,7 @@ export interface EvaluationRecord {
   status: 'pending' | 'completed' | 'approved' | 'rejected';
   evaluator: string;
   evaluatorId?: string;
-  evaluationData: EvaluationData;
+  evaluationData: EvaluationPayload;
   
   // Approval and Signature Data
   employeeSignature?: string;
@@ -87,44 +86,16 @@ export interface EvaluationRecordStats {
 let mockEvaluationRecords: EvaluationRecord[] | null = null;
 let mockApprovalHistory: ApprovalHistoryEntry[] = [];
 
-// Helper to get current evaluation records (in-memory with fallback to JSON)
+// Helper to get current evaluation records (in-memory)
 const getEvaluationRecords = (): EvaluationRecord[] => {
   // Return cached data if available
   if (mockEvaluationRecords) {
     return mockEvaluationRecords;
   }
   
-  // Initialize with submissions data
-  const records: EvaluationRecord[] = (submissionsData || []).map(sub => ({
-    ...sub,
-    status: (sub.status as 'pending' | 'completed' | 'approved' | 'rejected') || 'pending',
-    employeeEmail: '',
-    evaluatorId: '',
-    employeeSignature: '',
-    employeeSignatureDate: '',
-    employeeApprovedAt: '',
-    employeeApprovedBy: '',
-    evaluatorSignature: '',
-    evaluatorSignatureDate: '',
-    evaluatorApprovedAt: '',
-    evaluatorApprovedBy: '',
-    quarter: getQuarterFromDate(sub.submittedAt),
-    year: new Date(sub.submittedAt).getFullYear(),
-    department: sub.evaluationData?.department || '',
-    position: sub.evaluationData?.position || '',
-    branch: sub.evaluationData?.branch || '',
-    approvalStatus: 'pending' as const,
-    approvalHistory: [],
-    approvalComments: '',
-    rejectionReason: '',
-    lastModified: sub.submittedAt,
-    createdBy: sub.evaluator,
-    evaluationData: sub.evaluationData as EvaluationData
-  }));
-  
-  // Cache in memory
-  mockEvaluationRecords = records;
-  return records;
+  // Initialize with empty array (records will be added through service functions)
+  mockEvaluationRecords = [];
+  return mockEvaluationRecords;
 };
 
 // Helper to save evaluation records (in-memory only)

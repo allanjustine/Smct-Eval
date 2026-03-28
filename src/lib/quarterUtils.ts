@@ -71,10 +71,19 @@ export const getQuarterFromDate = (dateString: string): string => {
 /**
  * Get quarter color for UI display
  */
-export const getQuarterColor = (quarter: string) => {
-  if (quarter.includes('Q1')) return 'bg-blue-100 text-blue-800';
-  if (quarter.includes('Q2')) return 'bg-green-100 text-green-800';
-  if (quarter.includes('Q3')) return 'bg-yellow-100 text-yellow-800';
-  if (quarter.includes('Q4')) return 'bg-purple-100 text-purple-800';
+export const getQuarterColor = (quarter: string | number | null | undefined) => {
+  // Convert to string and handle null/undefined
+  const quarterStr = quarter ? String(quarter) : '';
+  
+  if (!quarterStr) return 'bg-gray-100 text-gray-800';
+  
+  if (quarterStr.includes('Q1')) return 'bg-blue-100 text-blue-800';
+  if (quarterStr.includes('Q2')) return 'bg-green-100 text-green-800';
+  if (quarterStr.includes('Q3')) return 'bg-yellow-100 text-yellow-800';
+  if (quarterStr.includes('Q4')) return 'bg-purple-100 text-purple-800';
+  
+  // Handle numeric probationary values (3, 5)
+  if (quarterStr === '3' || quarterStr === '5') return 'bg-orange-100 text-orange-800';
+  
   return 'bg-gray-100 text-gray-800';
 };

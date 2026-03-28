@@ -4,6 +4,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { mutate } from 'swr';
 import { EvaluationRecord } from '@/lib/evaluationRecordsService';
+import { CONFIG } from '../../config/config';
 
 export interface RealtimeUpdate {
   type: 'evaluation_created' | 'evaluation_updated' | 'evaluation_deleted' | 'approval_added';
@@ -33,7 +34,26 @@ export const useRealtimeEvaluationUpdates = (
     if (!enabled || wsRef.current?.readyState === WebSocket.OPEN) return;
 
     try {
-      const wsUrl = url || `ws://localhost:3001/evaluations`;
+      // Convert API URL to WebSocket URL
+      const getWebSocketUrl = () => {
+        if (url) return url;
+        
+        const apiUrl = CONFIG.API_URL;
+        if (!apiUrl) {
+          console.warn('API_URL not configured, falling back to localhost');
+          return 'ws://localhost:3001/evaluations';
+        }
+        
+        // Convert http:// or https:// to ws:// or wss://
+        const wsUrl = apiUrl
+          .replace(/^http:/, 'ws:')
+          .replace(/^https:/, 'wss:');
+        
+        // Append /evaluations endpoint
+        return `${wsUrl}/evaluations`;
+      };
+      
+      const wsUrl = getWebSocketUrl();
       const ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {

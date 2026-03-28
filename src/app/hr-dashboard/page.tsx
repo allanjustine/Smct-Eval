@@ -1,1460 +1,549 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
-import DashboardShell, { SidebarItem } from '@/components/DashboardShell';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useMemo, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
-import { AlertDialog } from "@/components/ui/alert-dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronDown } from "lucide-react";
-import ViewResultsModal from '@/components/evaluation/ViewResultsModal';
-import TabLoadingIndicator, { TableSkeletonLoader, PerformanceTableSkeleton } from '@/components/TabLoadingIndicator';
-import { useTabLoading } from '@/hooks/useTabLoading';
-import clientDataService from '@/lib/clientDataService';
-import { useAutoRefresh } from '@/hooks/useAutoRefresh';
+import { getQuarterColor } from "@/lib/quarterUtils";
+import apiService from "@/lib/apiService";
+import { EvaluationPayload } from "@/components/evaluation/types";
+import ViewResultsModal from "@/components/evaluation/ViewResultsModal";
+import EvaluationsPagination from "@/components/paginationComponent";
 
-// Import data
-import accountsData from '@/data/accounts.json';
-import departmentsData from '@/data/departments.json';
-// branchData now comes from clientDataService
+export default function OverviewTab() {
+  //data
+  const [submissions, setSubmissions] = useState<EvaluationPayload[]>([]);
+  const [newEval, setNewEval] = useState<any | null>(null);
+  const [pendingEval, setPendingEval] = useState<any | null>(null);
+  const [completedEval, setCompletedEval] = useState<any | null>(null);
+  const [totalEmployees, setTotalEmployees] = useState<any | null>(null);
+  //filters
+  const [overviewSearchTerm, setOverviewSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] =
+    useState(overviewSearchTerm);
 
-// TypeScript interfaces
-interface Employee {
-  id: number;
-  name: string;
-  email: string;
-  position: string;
-  department: string;
-  branch: string;
-  hireDate: string;
-  role: string;
-}
-
-interface Department {
-  id: number;
-  name: string;
-  manager: string;
-  employeeCount: number;
-  performance: number;
-}
-
-interface Branch {
-  id: number;
-  name: string;
-  location: string;
-  manager: string;
-  employeeCount: number;
-  performance: number;
-}
-
-interface HRMetrics {
-  totalEmployees: number;
-  activeEmployees: number;
-  newHires: number;
-  turnoverRate: number;
-  averageTenure: number;
-  departmentsCount: number;
-  branchesCount: number;
-  genderDistribution: {
-    male: number;
-    female: number;
-  };
-  ageDistribution: {
-    '18-25': number;
-    '26-35': number;
-    '36-45': number;
-    '46+': number;
-  };
-  performanceDistribution: {
-    excellent: number;
-    good: number;
-    average: number;
-    needsImprovement: number;
-  };
-}
-
-// Function to get quarter from date
-const getQuarterFromDate = (dateString: string): string => {
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'Unknown';
-    
-    const month = date.getMonth() + 1; // getMonth() returns 0-11
-    const year = date.getFullYear();
-    
-    if (month >= 1 && month <= 3) return `Q1 ${year}`;
-    if (month >= 4 && month <= 6) return `Q2 ${year}`;
-    if (month >= 7 && month <= 9) return `Q3 ${year}`;
-    if (month >= 10 && month <= 12) return `Q4 ${year}`;
-    
-    return 'Unknown';
-  } catch (error) {
-    return 'Unknown';
-  }
-};
-
-const getQuarterColor = (quarter: string) => {
-  if (quarter.includes('Q1')) return 'bg-blue-100 text-blue-800';
-  if (quarter.includes('Q2')) return 'bg-green-100 text-green-800';
-  if (quarter.includes('Q3')) return 'bg-yellow-100 text-yellow-800';
-  if (quarter.includes('Q4')) return 'bg-purple-100 text-purple-800';
-  return 'bg-gray-100 text-gray-800';
-};
-
-export default function HRDashboard() {
-  const searchParams = useSearchParams();
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [branches, setBranches] = useState<{id: string, name: string}[]>([]);
-  const [hrMetrics, setHrMetrics] = useState<HRMetrics | null>(null);
-  const [loading, setLoading] = useState(true);
-  
-  // Initialize active tab from URL parameter or default to 'overview'
-  const tabParam = searchParams.get('tab');
-  const [active, setActive] = useState(tabParam || 'overview');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedDepartment, setSelectedDepartment] = useState('all');
-  const [selectedBranch, setSelectedBranch] = useState('all');
-  const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-  const [editFormData, setEditFormData] = useState<Partial<Employee>>({});
-  const [isPerformanceModalOpen, setIsPerformanceModalOpen] = useState(false);
-  const [selectedPerformanceLevel, setSelectedPerformanceLevel] = useState<string>('');
-  const [recentSubmissions, setRecentSubmissions] = useState<any[]>([]);
-  const [submissionsLoading, setSubmissionsLoading] = useState(true);
+  //pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(4);
+  const [overviewTotal, setOverviewTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [perPage, setPerPage] = useState(0);
+  //view
+  const [selectedSubmission, setSelectedSubmission] = useState(null);
+  //modal
   const [isViewResultsModalOpen, setIsViewResultsModalOpen] = useState(false);
-  const [selectedSubmission, setSelectedSubmission] = useState<any>(null);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
-
-  // Tab loading hook
-  const { isTabLoading, handleTabChange: handleTabChangeWithLoading } = useTabLoading();
-
-  // Handle tab changes with loading
-  const handleTabChange = async (tabId: string) => {
-    setActive(tabId);
-    
-    // Use the new tab loading approach
-    await handleTabChangeWithLoading(tabId, async () => {
-      // Auto-refresh data when switching to specific tabs
-      if (tabId === 'overview') {
-        await fetchRecentSubmissions();
-      } else if (tabId === 'employees') {
-        await refreshEmployeeData();
-      }
-    }, {
-      showLoading: true,
-      loadingDuration: 600,
-      skipIfRecentlyLoaded: true
-    });
-  };
-
-  // Function to refresh HR dashboard data (used by shared hook)
-  const refreshHRData = async () => {
-    try {
-      setLoading(true);
-      
-      // Load data
-      // Convert accounts data to employees format (filter out admin accounts)
-      const employeeAccounts = (accountsData.accounts || []).filter((account: any) => account.role !== 'admin');
-      const employeesList = employeeAccounts.map((account: any) => ({
-        id: account.employeeId || account.id,
-        name: account.name,
-        email: account.email,
-        position: account.position,
-        department: account.department,
-        branch: account.branch,
-        hireDate: account.hireDate,
-        role: account.role
-      }));
-      setEmployees(employeesList);
-      setDepartments(departmentsData);
-      
-      // Load branches from API
-      const branchesData = await clientDataService.getBranches();
-      setBranches(branchesData);
-
-      // Calculate HR metrics
-      const employees = employeeAccounts;
-      const metrics: HRMetrics = {
-        totalEmployees: employees.length,
-        activeEmployees: employees.length,
-        newHires: employees.filter((emp: any) => {
-          const hireDate = new Date(emp.hireDate);
-          const sixMonthsAgo = new Date();
-          sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-          return hireDate > sixMonthsAgo;
-        }).length,
-        turnoverRate: 5.2, // Mock data
-        averageTenure: 2.8, // Mock data
-        departmentsCount: departmentsData.length,
-        branchesCount: branches.length,
-        genderDistribution: {
-          male: Math.floor(employees.length * 0.55),
-          female: Math.floor(employees.length * 0.45)
-        },
-        ageDistribution: {
-          '18-25': Math.floor(employees.length * 0.15),
-          '26-35': Math.floor(employees.length * 0.45),
-          '36-45': Math.floor(employees.length * 0.30),
-          '46+': Math.floor(employees.length * 0.10)
-        },
-        performanceDistribution: {
-          excellent: Math.floor(employees.length * 0.25),
-          good: Math.floor(employees.length * 0.40),
-          average: Math.floor(employees.length * 0.25),
-          needsImprovement: Math.floor(employees.length * 0.10)
-        }
-      };
-      setHrMetrics(metrics);
-      
-      // Refresh recent submissions
-      await fetchRecentSubmissions();
-    } catch (error) {
-      console.error('Error refreshing HR data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Auto-refresh functionality using shared hook
-  const {
-    showRefreshModal,
-    refreshModalMessage,
-    handleRefreshModalComplete,
-    refreshDashboardData
-  } = useAutoRefresh({
-    refreshFunction: refreshHRData,
-    dashboardName: 'HR Dashboard',
-    customMessage: 'Welcome back! Refreshing your HR dashboard data...'
-  });
-
-  // Handle URL parameter changes for tab navigation
-  useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab && tab !== active) {
-      setActive(tab);
-    }
-  }, [searchParams]);
-
-  // Real-time data updates via localStorage events
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      // Only refresh if the change is from another tab/window
-      if (e.key === 'submissions' && e.newValue !== e.oldValue) {
-        console.log('📊 Submissions data updated, refreshing HR dashboard...');
-        fetchRecentSubmissions();
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
-
-  // Fetch recent submissions from client data service
-  const fetchRecentSubmissions = async () => {
-    try {
-      const submissions = await clientDataService.getSubmissions();
-      setRecentSubmissions(submissions);
-    } catch (error) {
-      console.error('Error fetching submissions:', error);
-    } finally {
-      setSubmissionsLoading(false);
-    }
-  };
-
+  //refresh state
+  const [isRefreshing, setIsRefreshing] = useState(true);
 
   useEffect(() => {
-    const loadHRData = async () => {
+    const loadSubmissions = async () => {
       try {
-        // Load data
-        // Convert accounts data to employees format (filter out admin accounts)
-        const employeeAccounts = (accountsData.accounts || []).filter((account: any) => account.role !== 'admin');
-        const employeesList = employeeAccounts.map((account: any) => ({
-          id: account.employeeId || account.id,
-          name: account.name,
-          email: account.email,
-          position: account.position,
-          department: account.department,
-          branch: account.branch,
-          hireDate: account.hireDate,
-          role: account.role
-        }));
-        setEmployees(employeesList);
-        setDepartments(departmentsData);
-        
-        // Load branches from API
-        const branchesData = await clientDataService.getBranches();
-        setBranches(branchesData);
+        const res = await apiService.getSubmissions(
+          overviewSearchTerm,
+          currentPage,
+          itemsPerPage
+        );
+        setSubmissions(res.data);
+        setOverviewTotal(res.total);
+        setTotalPages(res.last_page);
+        setPerPage(res.per_page);
 
-        // Calculate HR metrics
-        const employees = employeeAccounts;
-        const metrics: HRMetrics = {
-          totalEmployees: employees.length,
-          activeEmployees: employees.length,
-          newHires: employees.filter((emp: any) => {
-            const hireDate = new Date(emp.hireDate);
-            const sixMonthsAgo = new Date();
-            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-            return hireDate > sixMonthsAgo;
-          }).length,
-          turnoverRate: 5.2, // Mock data
-          averageTenure: 2.8, // Mock data
-          departmentsCount: departmentsData.length,
-          branchesCount: branches.length,
-          genderDistribution: {
-            male: Math.floor(employees.length * 0.55),
-            female: Math.floor(employees.length * 0.45)
-          },
-          ageDistribution: {
-            '18-25': Math.floor(employees.length * 0.15),
-            '26-35': Math.floor(employees.length * 0.45),
-            '36-45': Math.floor(employees.length * 0.30),
-            '46+': Math.floor(employees.length * 0.10)
-          },
-          performanceDistribution: {
-            excellent: Math.floor(employees.length * 0.25),
-            good: Math.floor(employees.length * 0.40),
-            average: Math.floor(employees.length * 0.25),
-            needsImprovement: Math.floor(employees.length * 0.10)
-          }
-        };
-
-        setHrMetrics(metrics);
-        setLoading(false);
+        const dashboard = await apiService.hrDashboard();
+        setNewEval(dashboard.new_eval);
+        setPendingEval(dashboard.pending_eval);
+        setCompletedEval(dashboard.completed_eval);
+        setTotalEmployees(dashboard.total_users);
       } catch (error) {
-        console.error('Error loading HR data:', error);
-        setLoading(false);
+        console.log(error);
+        setIsRefreshing(false);
+      } finally {
+        setIsRefreshing(false);
       }
     };
+    loadSubmissions();
+  }, [isRefreshing, debouncedSearchTerm, currentPage]);
 
-    loadHRData();
-    fetchRecentSubmissions();
-  }, []);
+  useEffect(() => {
+    const debounceTimeout = setTimeout(() => {
+      setDebouncedSearchTerm(overviewSearchTerm);
+      // Reset to page 1 when search term changes (if there's a value)
+      if (overviewSearchTerm.trim() !== "") {
+        setCurrentPage(1);
+      }
+    }, 500);
+    return () => clearTimeout(debounceTimeout);
+  }, [overviewSearchTerm]);
 
-
-  const filteredEmployees = employees.filter(employee => {
-    const matchesSearch = employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         employee.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         employee.position.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesDepartment = selectedDepartment === 'all' || employee.department === selectedDepartment;
-    const matchesBranch = selectedBranch === 'all' || employee.branch === selectedBranch;
-    
-    return matchesSearch && matchesDepartment && matchesBranch;
-  });
-
-  const getDepartmentStats = (deptName: string) => {
-    const deptEmployees = employees.filter(emp => emp.department === deptName);
-    return {
-      count: deptEmployees.length,
-      managers: deptEmployees.filter(emp => emp.role === 'Manager').length,
-      averageTenure: 2.5 // Mock data
-    };
+  // Helper function to get rating color
+  const getRatingColor = (rating: number) => {
+    if (rating >= 4.5) return "bg-green-100 text-green-800";
+    if (rating >= 4.0) return "bg-blue-100 text-blue-800";
+    if (rating >= 3.5) return "bg-yellow-100 text-yellow-800";
+    return "bg-red-100 text-red-800";
   };
 
-  const getBranchStats = (branchName: string) => {
-    const branchEmployees = employees.filter(emp => emp.branch === branchName);
-    return {
-      count: branchEmployees.length,
-      managers: branchEmployees.filter(emp => emp.role === 'Manager').length
-    };
+  const handleRefresh = async () => {
+    // await onRefresh();
   };
 
-  const handleEditEmployee = (employee: Employee) => {
-    setSelectedEmployee(employee);
-    setEditFormData({
-      name: employee.name,
-      email: employee.email,
-      position: employee.position,
-      department: employee.department,
-      branch: employee.branch,
-      hireDate: employee.hireDate,
-      role: employee.role
-    });
-    setIsEditModalOpen(true);
-  };
-
-  const handleSaveEmployee = () => {
-    if (selectedEmployee && editFormData) {
-      // Update the employee in the local state
-      const updatedEmployees = employees.map(emp => 
-        emp.id === selectedEmployee.id 
-          ? { ...emp, ...editFormData }
-          : emp
-      );
-      setEmployees(updatedEmployees);
-      
-      // Close modal and reset form
-      setIsEditModalOpen(false);
-      setEditFormData({});
-      setSelectedEmployee(null);
-      
-      // In a real app, you would make an API call here
-      console.log('Employee updated:', { id: selectedEmployee.id, ...editFormData });
-    }
-  };
-
-  const handleViewPerformanceEmployees = (level: string) => {
-    setSelectedPerformanceLevel(level);
-    setIsPerformanceModalOpen(true);
-  };
-
-  const viewSubmissionDetails = (submission: any) => {
-    setSelectedSubmission(submission);
-    setIsViewResultsModalOpen(true);
-  };
-
-  const handleDeleteEmployee = (employee: Employee) => {
-    setEmployeeToDelete(employee);
-    setIsDeleteModalOpen(true);
-  };
-
-  const confirmDeleteEmployee = () => {
-    if (employeeToDelete) {
-      // Remove employee from local state
-      const updatedEmployees = employees.filter(emp => emp.id !== employeeToDelete.id);
-      setEmployees(updatedEmployees);
-      
-      // Close modal and reset state
-      setIsDeleteModalOpen(false);
-      setEmployeeToDelete(null);
-      
-      // In a real app, you would make an API call here to delete from the database
-      console.log('Employee deleted:', employeeToDelete);
-    }
-  };
-
-  const refreshEmployeeData = async () => {
+  const handleViewEvaluation = async (submission: any) => {
     try {
-      setLoading(true);
-      // Reload data from accounts.json
-      const employeeAccounts = (accountsData.accounts || []).filter((account: any) => account.role !== 'admin');
-      const employeesList = employeeAccounts.map((account: any) => ({
-        id: account.employeeId || account.id,
-        name: account.name,
-        email: account.email,
-        position: account.position,
-        department: account.department,
-        branch: account.branch,
-        hireDate: account.hireDate,
-        role: account.role
-      }));
-      setEmployees(employeesList);
-      
-      // Recalculate HR metrics
-      const metrics: HRMetrics = {
-        totalEmployees: employeesList.length,
-        activeEmployees: employeesList.length,
-        newHires: employeesList.filter((emp: any) => {
-          const hireDate = new Date(emp.hireDate);
-          const sixMonthsAgo = new Date();
-          sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-          return hireDate > sixMonthsAgo;
-        }).length,
-        turnoverRate: 5.2, // Mock data
-        averageTenure: 2.8, // Mock data
-        departmentsCount: departmentsData.length,
-        branchesCount: branches.length,
-        genderDistribution: {
-          male: Math.floor(employeesList.length * 0.55),
-          female: Math.floor(employeesList.length * 0.45)
-        },
-        ageDistribution: {
-          '18-25': Math.floor(employeesList.length * 0.15),
-          '26-35': Math.floor(employeesList.length * 0.45),
-          '36-45': Math.floor(employeesList.length * 0.30),
-          '46+': Math.floor(employeesList.length * 0.10)
-        },
-        performanceDistribution: {
-          excellent: Math.floor(employeesList.length * 0.25),
-          good: Math.floor(employeesList.length * 0.40),
-          average: Math.floor(employeesList.length * 0.25),
-          needsImprovement: Math.floor(employeesList.length * 0.10)
-        }
-      };
-      setHrMetrics(metrics);
+      const fullSubmission = await apiService.getSubmissionById(submission.id);
+
+      if (fullSubmission) {
+        setSelectedSubmission(fullSubmission);
+        setIsViewResultsModalOpen(true);
+      } else {
+        console.error("Submission not found for ID:", submission.id);
+      }
     } catch (error) {
-      console.error('Error refreshing employee data:', error);
-    } finally {
-      setLoading(false);
+      console.error("Error fetching submission details:", error);
     }
   };
-
-
-  const getPerformanceEmployees = (level: string) => {
-    // In a real app, you would filter employees by actual performance data
-    // For now, we'll simulate by taking a subset of employees
-    const count = hrMetrics?.performanceDistribution[level as keyof typeof hrMetrics.performanceDistribution] || 0;
-    return employees.slice(0, Math.min(count, employees.length));
-  };
-
-  const sidebarItems: SidebarItem[] = [
-    { id: 'overview', label: 'Overview', icon: '📊' },
-    { id: 'employees', label: 'Employees', icon: '👥' },
-    { id: 'departments', label: 'Departments', icon: '🏢' },
-    { id: 'branches', label: 'Branches', icon: '📍' },
-    { id: 'analytics', label: 'Analytics', icon: '📈' },
-  ];
-
-  // Loading state is now handled in the main return statement
-
-  const topSummary = (
-    <>
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-gray-600">Total Employees</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-3xl font-bold text-gray-900">{hrMetrics?.totalEmployees || 0}</div>
-          <p className="text-sm text-gray-500 mt-1">Active workforce</p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-gray-600">New Hires</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-3xl font-bold text-green-600">{hrMetrics?.newHires || 0}</div>
-          <p className="text-sm text-gray-500 mt-1">Last 6 months</p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-gray-600">Recent Evaluations</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-3xl font-bold text-purple-600">{recentSubmissions.length}</div>
-          <p className="text-sm text-gray-500 mt-1">Submitted this period</p>
-        </CardContent>
-      </Card>
-    </>
-  );
 
   return (
     <>
-      {/* Loading Screen - Shows during initial load */}
-      {(loading || !hrMetrics) && (
-        <div className="fixed inset-0 bg-white/90 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-lg font-medium text-gray-800">Loading HR Dashboard...</p>
-          </div>
-        </div>
-      )}
-
-      
-      <DashboardShell
-        title="HR Dashboard"
-        currentPeriod={new Date().toLocaleDateString()}
-        sidebarItems={sidebarItems}
-        activeItemId={active}
-        onChangeActive={handleTabChange}
-        topSummary={topSummary}
-        profile={{ name: 'HR Manager', roleOrPosition: 'Human Resources' }}
-      >
-             {active === 'overview' && (
-         <div className="relative space-y-6 h-[calc(100vh-300px)] overflow-y-auto pr-2">
-           <TabLoadingIndicator 
-             isLoading={isTabLoading('overview')} 
-             message="Loading overview data..." 
-             position="top"
-           />
-           {/* Recent Activity Table */}
-           <Card>
-             <CardHeader>
-               <CardTitle>Recent Activity</CardTitle>
-               <CardDescription>Latest HR activities and updates</CardDescription>
-             </CardHeader>
-             <CardContent>
-               <div className="max-h-[400px] overflow-y-auto">
-                 <Table>
-                   <TableHeader className="sticky top-0 bg-white">
-                     <TableRow>
-                       <TableHead>Activity</TableHead>
-                       <TableHead>Employee</TableHead>
-                       <TableHead>Department</TableHead>
-                       <TableHead>Type</TableHead>
-                       <TableHead>Date</TableHead>
-                       <TableHead>Status</TableHead>
-                       <TableHead>Actions</TableHead>
-                     </TableRow>
-                   </TableHeader>
-                   <TableBody>
-                     {submissionsLoading ? (
-                       <TableRow>
-                         <TableCell colSpan={7} className="text-center py-8">
-                           <div className="text-gray-500">
-                             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                             <p className="text-sm">Loading recent activities...</p>
-                           </div>
-                         </TableCell>
-                       </TableRow>
-                     ) : recentSubmissions.length === 0 ? (
-                       <TableRow>
-                         <TableCell colSpan={7} className="text-center py-8">
-                           <div className="text-gray-500">
-                             <p className="text-sm">No recent activities to display</p>
-                             <p className="text-xs mt-1">Activity feed will appear here when data is available</p>
-                           </div>
-                         </TableCell>
-                       </TableRow>
-                     ) : (
-                       recentSubmissions.slice(0, 10).map((submission) => (
-                         <TableRow key={submission.id} className="hover:bg-gray-50">
-                           <TableCell className="py-3">
-                             <div className="flex items-center space-x-2">
-                               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                               <span className="text-sm font-medium">Performance Review Submitted</span>
-                             </div>
-                           </TableCell>
-                           <TableCell className="py-3">
-                             <div>
-                               <div className="font-medium text-gray-900">{submission.employeeName}</div>
-                               <div className="text-xs text-gray-500">{submission.evaluationData?.position || 'N/A'}</div>
-                             </div>
-                           </TableCell>
-                           <TableCell className="py-3">
-                             <Badge variant="outline" className="text-xs">
-                               {submission.evaluationData?.department || 'N/A'}
-                             </Badge>
-                           </TableCell>
-                           <TableCell className="py-3">
-                             <Badge className={`text-xs ${
-                               submission.category === 'Performance Review' ? 'bg-blue-100 text-blue-800' :
-                               submission.category === 'Probationary Review' ? 'bg-yellow-100 text-yellow-800' :
-                               'bg-gray-100 text-gray-800'
-                             }`}>
-                               {submission.category}
-                             </Badge>
-                           </TableCell>
-                           <TableCell className="py-3 text-sm text-gray-600">
-                             {new Date(submission.submittedAt).toLocaleDateString()}
-                           </TableCell>
-                           <TableCell className="py-3">
-                             <Badge className="bg-green-100 text-green-800">
-                               Completed
-                             </Badge>
-                           </TableCell>
-                           <TableCell className="py-3">
-                             <Button
-                               variant="outline"
-                               size="sm"
-                               onClick={() => viewSubmissionDetails(submission)}
-                               className="text-xs px-2 py-1"
-                             >
-                               View Details
-                             </Button>
-                           </TableCell>
-                         </TableRow>
-                       ))
-                     )}
-                   </TableBody>
-                 </Table>
-               </div>
-             </CardContent>
-           </Card>
-
-           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-             {/* Organization Structure */}
-             <Card>
-               <CardHeader>
-                 <CardTitle>Organization Structure</CardTitle>
-                 <CardDescription>Company overview and distribution</CardDescription>
-               </CardHeader>
-               <CardContent className="space-y-4">
-                 <div className="grid grid-cols-2 gap-4">
-                   <div className="text-center p-4 bg-blue-50 rounded-lg">
-                     <div className="text-2xl font-bold text-blue-600">{hrMetrics?.departmentsCount || 0}</div>
-                     <div className="text-sm text-gray-600">Departments</div>
-                   </div>
-                   <div className="text-center p-4 bg-green-50 rounded-lg">
-                     <div className="text-2xl font-bold text-green-600">{hrMetrics?.branchesCount || 0}</div>
-                     <div className="text-sm text-gray-600">Branches</div>
-                   </div>
-                 </div>
-                 <div className="space-y-3">
-                   <div className="flex justify-between items-center">
-                     <span className="text-sm text-gray-600">Gender Distribution</span>
-                     <div className="flex space-x-2">
-                       <Badge variant="outline">Male: {hrMetrics?.genderDistribution.male || 0}</Badge>
-                       <Badge variant="outline">Female: {hrMetrics?.genderDistribution.female || 0}</Badge>
-                     </div>
-                   </div>
-                   <div className="space-y-2">
-                     <div className="flex justify-between text-sm">
-                       <span>Male</span>
-                       <span>{Math.round(((hrMetrics?.genderDistribution.male || 0) / (hrMetrics?.totalEmployees || 1)) * 100)}%</span>
-                     </div>
-                     <Progress value={((hrMetrics?.genderDistribution.male || 0) / (hrMetrics?.totalEmployees || 1)) * 100} className="h-2" />
-                   </div>
-                 </div>
-               </CardContent>
-             </Card>
-
-                                          {/* Performance Distribution */}
-               <Card>
-                 <CardHeader>
-                   <CardTitle>Performance Distribution</CardTitle>
-                   <CardDescription>Employee performance overview - Click to view employees</CardDescription>
-                 </CardHeader>
-                 <CardContent>
-                   <div className="max-h-[400px] overflow-y-auto space-y-4 pr-2">
-                     {Object.entries(hrMetrics?.performanceDistribution || {}).map(([level, count]) => {
-                       // Get employees for this performance level (mock data for now)
-                       const performanceEmployees = employees.slice(0, Math.min(count, 3)); // Show first 3 employees as example
-                       
-                       return (
-                         <div key={level} className="space-y-3 p-3 bg-gray-50 rounded-lg">
-                           <div className="flex justify-between items-center">
-                             <div className="flex items-center space-x-2">
-                               <span className="capitalize font-medium">{level}</span>
-                               <Badge variant="outline" className="text-xs">
-                                 {count} employees
-                               </Badge>
-                             </div>
-                             <Button 
-                               variant="ghost" 
-                               size="sm"
-                               className="text-xs h-6 px-2"
-                               onClick={() => handleViewPerformanceEmployees(level)}
-                             >
-                               View All
-                             </Button>
-                           </div>
-                           <Progress 
-                             value={(count / (hrMetrics?.totalEmployees || 1)) * 100} 
-                             className="h-2"
-                           />
-                           {performanceEmployees.length > 0 && (
-                             <div className="space-y-2">
-                               <p className="text-xs text-gray-600 font-medium">Sample employees:</p>
-                               <div className="space-y-1">
-                                 {performanceEmployees.map((emp, index) => (
-                                   <div key={emp.id} className="flex items-center justify-between text-xs bg-white p-2 rounded border">
-                                     <div className="flex items-center space-x-2">
-                                       <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                                       <span className="font-medium">{emp.name}</span>
-                                     </div>
-                                     <span className="text-gray-500">{emp.department}</span>
-                                   </div>
-                                 ))}
-                               </div>
-                             </div>
-                           )}
-                         </div>
-                       );
-                     })}
-                   </div>
-                 </CardContent>
-               </Card>
-           </div>
-         </div>
-       )}
-
-      {active === 'employees' && (
-        <div className="relative">
-          {isTabLoading('employees') ? (
-            <TableSkeletonLoader rows={10} columns={6} />
-          ) : (
-          <Card>
-          <CardHeader>
-            <CardTitle>Employee Directory</CardTitle>
-            <CardDescription>Search and manage employees</CardDescription>
+      <div className="flex gap-3 mb-3">
+        {/* New Submissions (Last 24 hours) */}
+        <Card className="w-1/4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">
+              🆕 New Submissions
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-4 mb-6">
-              <Input
-                placeholder="Search employees..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="flex-1"
-              />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="w-[180px] justify-between">
-                    {selectedDepartment === 'all' ? 'All Departments' : selectedDepartment || 'Department'}
-                    <ChevronDown className="h-4 w-4 opacity-50" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-[180px]">
-                  <DropdownMenuItem 
-                    onClick={() => setSelectedDepartment('all')}
-                    className={selectedDepartment === 'all' ? "bg-accent" : ""}
+            <div className="text-3xl font-bold text-yellow-600">
+              {newEval || 0}
+            </div>
+            <p className="text-sm text-gray-500 mt-1">Last 24 hours</p>
+          </CardContent>
+        </Card>
+
+        {/* Pending Approvals */}
+        <Card className="w-1/4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">
+              ⏳ Pending Approvals
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-orange-600">
+              {pendingEval || 0}
+            </div>
+            <p className="text-sm text-gray-500 mt-1">Needs review</p>
+          </CardContent>
+        </Card>
+
+        {/* Approved Evaluations */}
+        <Card className="w-1/4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">
+              ✅ Approved
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-green-600">
+              {completedEval || 0}
+            </div>
+            <p className="text-sm text-gray-500 mt-1">Completed reviews</p>
+          </CardContent>
+        </Card>
+
+        {/* Total Employees */}
+        <Card className="w-1/4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">
+              👥 Total Employees
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-blue-600">
+              {totalEmployees || 0}
+            </div>
+            <p className="text-sm text-gray-500 mt-1">
+              All registered employees
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+      <div className="relative space-y-6 pr-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Recent Evaluation Records
+              {(() => {
+                const now = new Date();
+                const newCount = 0;
+                submissions.filter((sub) => {
+                  const hoursDiff =
+                    (now.getTime() - new Date(sub.created_at).getTime()) /
+                    (1000 * 60 * 60);
+                  return hoursDiff <= 24;
+                }).length;
+                return newCount > 0 ? (
+                  <Badge className="bg-yellow-500 text-white animate-pulse">
+                    {newCount} NEW
+                  </Badge>
+                ) : null;
+              })()}
+              <Badge variant="outline" className="text-xs font-normal">
+                📅 Sorted: Newest First
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              Latest performance evaluations and reviews (most recent at the
+              top)
+            </CardDescription>
+            {/* Search Bar and Refresh Button */}
+            <div className="mt-4 flex items-center gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Input
+                  placeholder="Search by employee, department, position, evaluator, or status..."
+                  value={overviewSearchTerm}
+                  onChange={(e) => setOverviewSearchTerm(e.target.value)}
+                  className="pr-10"
+                />
+                {overviewSearchTerm && (
+                  <button
+                    onClick={() => setOverviewSearchTerm("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-red-400 hover:text-red-600 transition-colors hover:scale-120 transition-transform duration-200"
+                    aria-label="Clear search"
                   >
-                    All Departments
-                  </DropdownMenuItem>
-                  {departments.map(dept => (
-                    <DropdownMenuItem 
-                      key={dept.id} 
-                      onClick={() => setSelectedDepartment(dept.name)}
-                      className={selectedDepartment === dept.name ? "bg-accent" : ""}
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-6 w-6"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
                     >
-                      {dept.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="w-[180px] justify-between">
-                    {selectedBranch === 'all' ? 'All Branches' : selectedBranch || 'Branch'}
-                    <ChevronDown className="h-4 w-4 opacity-50" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-[180px]">
-                  <DropdownMenuItem 
-                    onClick={() => setSelectedBranch('all')}
-                    className={selectedBranch === 'all' ? "bg-accent" : ""}
-                  >
-                    All Branches
-                  </DropdownMenuItem>
-                  {branches.map(branch => (
-                    <DropdownMenuItem 
-                      key={branch.id} 
-                      onClick={() => setSelectedBranch(branch.name)}
-                      className={selectedBranch === branch.name ? "bg-accent" : ""}
-                    >
-                      {branch.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {/* Refresh Button */}
               <Button
-                onClick={() => refreshDashboardData(true, false)}
-                disabled={loading}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white"
-                title="Refresh HR dashboard data"
+                onClick={() => setIsRefreshing(true)}
+                disabled={isRefreshing}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white hover:scale-105 transition-transform duration-200"
+                title="Refresh evaluation records"
               >
-                {loading ? (
+                {isRefreshing ? (
                   <div className="flex items-center space-x-2">
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                     <span>Refreshing...</span>
                   </div>
                 ) : (
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 cursor-pointer ">
                     <span>🔄</span>
                     <span>Refresh</span>
                   </div>
                 )}
               </Button>
             </div>
+            {/* Indicator Legend */}
+            <div className="mt-3 md:mt-4 p-2 md:p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex flex-wrap gap-2 md:gap-4 text-xs md:text-sm">
+                <span className="font-medium text-gray-700 mr-2">
+                  Indicators:
+                </span>
+                <div className="flex items-center gap-1">
+                  <div className="w-2.5 h-2.5 md:w-3 md:h-3 bg-yellow-100 border-l-2 border-l-yellow-500 rounded"></div>
+                  <Badge className="bg-yellow-200 text-yellow-800 text-xs md:text-sm px-1.5 md:px-2 py-0.5">
+                    New
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2.5 h-2.5 md:w-3 md:h-3 bg-blue-50 border-l-2 border-l-blue-500 rounded"></div>
+                  <Badge className="bg-blue-300 text-blue-800 text-xs md:text-sm px-1.5 md:px-2 py-0.5">
+                    Recent
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2.5 h-2.5 md:w-3 md:h-3 bg-green-50 border-l-2 border-l-green-500 rounded"></div>
+                  <Badge className="bg-green-500 text-white text-xs md:text-sm px-1.5 md:px-2 py-0.5">
+                    Approved
+                  </Badge>
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className=" h-64 overflow-x-auto w-full">
+              {isRefreshing && (
+                <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+                  <div className="flex flex-col items-center gap-3 bg-white/95 px-6 md:px-8 py-4 md:py-6 rounded-lg shadow-lg">
+                    <div className="relative">
+                      <div className="animate-spin rounded-full h-12 md:h-16 w-12 md:w-16 border-4 border-blue-500 border-t-transparent"></div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <img
+                          src="/smct.png"
+                          alt="SMCT Logo"
+                          className="h-8 md:h-10 w-8 md:w-10 object-contain"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs md:text-sm text-gray-600 font-medium">
+                      Loading evaluation records...
+                    </p>
+                  </div>
+                </div>
+              )}
 
-            {/* Employee Table */}
-            <div className="max-h-[70vh] overflow-y-auto">
-              <Table className="w-full">
-                <TableHeader className="sticky top-0 bg-white">
+              <Table className="min-w-full w-full">
+                <TableHeader className="sticky top-0 bg-white z-10 border-b border-gray-200">
                   <TableRow>
-                    <TableHead className="w-auto">Name</TableHead>
-                    <TableHead className="w-auto">Email</TableHead>
-                    <TableHead className="w-auto">Position</TableHead>
-                    <TableHead className="w-auto">Department</TableHead>
-                    <TableHead className="w-auto">Branch</TableHead>
-                    <TableHead className="w-auto">Hire Date</TableHead>
-                    <TableHead className="w-auto text-right">Actions</TableHead>
+                    <TableHead className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3 min-w-[140px] md:min-w-[160px] lg:min-w-[180px] xl:min-w-[200px]">
+                      <span className="text-xs md:text-sm lg:text-base">
+                        Employee Name
+                      </span>
+                    </TableHead>
+                    <TableHead className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3 text-left pl-0 min-w-[100px] md:min-w-[120px] lg:min-w-[140px]">
+                      <span className="text-xs md:text-sm lg:text-base">
+                        Rating
+                      </span>
+                    </TableHead>
+                    <TableHead className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3 min-w-[80px] md:min-w-[90px] lg:min-w-[100px]">
+                      <span className="text-xs md:text-sm lg:text-base">
+                        Quarter
+                      </span>
+                    </TableHead>
+                    <TableHead className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3 min-w-[90px] md:min-w-[100px] lg:min-w-[110px]">
+                      <span className="text-xs md:text-sm lg:text-base">
+                        Date
+                      </span>
+                    </TableHead>
+                    <TableHead className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3 min-w-[110px] md:min-w-[130px] lg:min-w-[150px]">
+                      <span className="text-xs md:text-sm lg:text-base">
+                        Approval Status
+                      </span>
+                    </TableHead>
+                    <TableHead className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3 min-w-[120px] md:min-w-[140px] lg:min-w-[160px]">
+                      <span className="text-xs md:text-sm lg:text-base">
+                        Actions
+                      </span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
-                  {filteredEmployees.map((employee) => (
-                    <TableRow key={employee.id}>
-                      <TableCell className="font-medium">{employee.name}</TableCell>
-                      <TableCell className="text-sm text-gray-600">{employee.email}</TableCell>
-                      <TableCell>{employee.position}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{employee.department}</Badge>
-                      </TableCell>
-                      <TableCell>{employee.branch}</TableCell>
-                      <TableCell>
-                        {new Date(employee.hireDate).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end space-x-2">
-                          <Button
-                            variant="ghost"
-                            className="text-white bg-green-600 hover:bg-green-700 hover:text-white hover:bg-green-500"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedEmployee(employee);
-                              setIsEmployeeModalOpen(true);
+                <TableBody className="divide-y divide-gray-200">
+                  {isRefreshing ? (
+                    Array.from({ length: 8 }).map((_, index) => (
+                      <TableRow key={`skeleton-${index}`}>
+                        <TableCell className="px-6 py-3">
+                          <div className="space-y-1">
+                            <div className="h-3 w-20 bg-gray-200 rounded animate-pulse"></div>
+                            <div className="h-2.5 w-24 bg-gray-200 rounded animate-pulse"></div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-6 py-3 text-left pl-0">
+                          <div className="h-5 w-16 bg-gray-200 rounded-full animate-pulse"></div>
+                        </TableCell>
+                        <TableCell className="px-6 py-3">
+                          <div className="h-5 w-12 bg-gray-200 rounded-full animate-pulse"></div>
+                        </TableCell>
+                        <TableCell className="px-6 py-3">
+                          <div className="h-3 w-16 bg-gray-200 rounded animate-pulse"></div>
+                        </TableCell>
+                        <TableCell className="px-6 py-3">
+                          <div className="h-5 w-20 bg-gray-200 rounded-full animate-pulse"></div>
+                        </TableCell>
+                        <TableCell className="px-6 py-3">
+                          <div className="h-6 w-16 bg-gray-200 rounded animate-pulse"></div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : !submissions || submissions.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-12">
+                        <div className="flex flex-col items-center justify-center gap-4">
+                          <img
+                            src="/not-found.gif"
+                            alt="No data"
+                            className="w-25 h-25 object-contain"
+                            style={{
+                              imageRendering: "auto",
+                              willChange: "auto",
+                              transform: "translateZ(0)",
+                              backfaceVisibility: "hidden",
+                              WebkitBackfaceVisibility: "hidden",
                             }}
-                          >
-                            View
-                          </Button>
-                          <Button
-                            variant="outline"
-                            className="text-white bg-blue-600 hover:bg-blue-700 hover:text-white hover:bg-blue-400"
-                            size="sm"
-                            onClick={() => handleEditEmployee(employee)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            className="text-white bg-red-600 hover:bg-red-700 hover:text-white"
-                            size="sm"
-                            onClick={() => handleDeleteEmployee(employee)}
-                          >
-                            Delete
-                          </Button>
+                          />
+                          <div className="text-gray-500">
+                            {overviewSearchTerm ? (
+                              <>
+                                <p className="text-base font-medium mb-1">
+                                  No results found for "{overviewSearchTerm}"
+                                </p>
+                                <p className="text-sm text-gray-400">
+                                  Try adjusting your search term
+                                </p>
+                              </>
+                            ) : (
+                              <>
+                                <p className="text-base font-medium mb-1">
+                                  No evaluation records to display
+                                </p>
+                                <p className="text-sm text-gray-400">
+                                  Records will appear here when evaluations are
+                                  submitted
+                                </p>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    submissions.map((submission: any) => {
+                      // Calculate time difference for indicators
+                      const submittedDate = new Date(submission.created_at);
+                      const now = new Date();
+                      const hoursDiff =
+                        (now.getTime() - submittedDate.getTime()) /
+                        (1000 * 60 * 60);
+                      const isNew = hoursDiff <= 24;
+                      const isRecent = hoursDiff > 24 && hoursDiff <= 168; // 7 days
+
+                      return (
+                        <TableRow
+                          key={submission.id}
+                          className="hover:bg-gray-100 transition-colors"
+                        >
+                          <TableCell className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-1 md:gap-2 mb-1">
+                                <span className="font-medium text-gray-900 text-xs md:text-sm lg:text-base">
+                                  {submission.employee?.fname && submission.employee?.lname
+                                    ? `${submission.employee.fname} ${submission.employee.lname}`
+                                    : "Unknown Employee"}
+                                </span>
+                                {isNew && (
+                                  <Badge className="bg-yellow-100 text-yellow-800 text-xs px-1.5 md:px-2 py-0.5 font-semibold">
+                                    ⚡ NEW
+                                  </Badge>
+                                )}
+                                {!isNew && isRecent && (
+                                  <Badge className="bg-blue-100 text-blue-800 text-xs px-1.5 md:px-2 py-0.5 font-semibold">
+                                    🕐 RECENT
+                                  </Badge>
+                                )}
+                                {submission.status === "completed" && (
+                                  <Badge className="bg-green-100 text-green-800 text-xs px-1.5 md:px-2 py-0.5 font-semibold">
+                                    ✓ APPROVED
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="text-xs md:text-sm text-gray-500">
+                                {submission.employee?.email || ""}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3 text-left pl-0">
+                            {submission.rating && (
+                              <Badge
+                                className={`text-xs md:text-sm font-semibold ${getRatingColor(
+                                  submission.rating
+                                )}`}
+                              >
+                                {submission.rating > 0
+                                  ? `${submission.rating}/5`
+                                  : "N/A"}
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3">
+                            <Badge
+                              className={`${getQuarterColor(
+                                submission.reviewTypeProbationary ||
+                                  submission.reviewTypeRegular
+                              )} text-xs md:text-sm`}
+                            >
+                              {submission.reviewTypeRegular ||
+                                "M" + submission.reviewTypeProbationary}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3 text-xs md:text-sm text-gray-600">
+                            {new Date(
+                              submission.created_at
+                            ).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3">
+                            <Badge
+                              className={`text-xs md:text-sm ${
+                                submission.status === "completed"
+                                  ? "bg-green-100 text-green-800"
+                                  : submission.status === "pending"
+                                  ? "bg-red-100 text-red-800"
+                                  : "bg-gray-100 text-gray-800"
+                              }`}
+                            >
+                              {submission.status === "completed"
+                                ? "✓ Fully Approved"
+                                : submission.status === "pending"
+                                ? "⏳ Pending"
+                                : ""}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-3 py-2 md:px-4 md:py-2.5 lg:px-6 lg:py-3">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewEvaluation(submission)}
+                              className="text-xs md:text-sm px-2 md:px-3 py-1 md:py-1.5 bg-green-600 hover:bg-green-500 text-white hover:text-white cursor-pointer hover:scale-110 transition-transform duration-200"
+                            >
+                              ☰ View
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
                 </TableBody>
               </Table>
             </div>
+            {overviewTotal > itemsPerPage && (
+              <EvaluationsPagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                total={overviewTotal}
+                perPage={perPage}
+                onPageChange={(page) => {
+                  setCurrentPage(page);
+                  setIsRefreshing(true);
+                }}
+              />
+            )}
+            {/* View Results Modal */}
+            <ViewResultsModal
+              isOpen={isViewResultsModalOpen}
+              onCloseAction={() => {
+                setIsViewResultsModalOpen(false);
+                setSelectedSubmission(null);
+              }}
+              submission={selectedSubmission}
+              showApprovalButton={false}
+            />
           </CardContent>
         </Card>
-          )}
-        </div>
-      )}
-
-      {active === 'departments' && (
-        <div className="relative h-[calc(100vh-200px)] overflow-y-auto pr-2">
-          {isTabLoading('departments') ? (
-            <TableSkeletonLoader rows={6} columns={4} />
-          ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {departments.map((dept) => {
-              const stats = getDepartmentStats(dept.name);
-              return (
-                <Card key={dept.id}>
-                  <CardHeader>
-                    <CardTitle className="flex justify-between items-center">
-                      {dept.name}
-                      <Badge variant="outline">{stats.count} employees</Badge>
-                    </CardTitle>
-                    <CardDescription>Department Manager</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="text-center p-3 bg-blue-50 rounded-lg">
-                        <div className="text-lg font-bold text-blue-600">{stats.count}</div>
-                        <div className="text-xs text-gray-600">Employees</div>
-                      </div>
-                      <div className="text-center p-3 bg-green-50 rounded-lg">
-                        <div className="text-lg font-bold text-green-600">{stats.managers}</div>
-                        <div className="text-xs text-gray-600">Managers</div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-          )}
-        </div>
-      )}
-
-      {active === 'branches' && (
-        <div className="relative h-[calc(100vh-200px)] overflow-y-auto pr-2">
-          {isTabLoading('branches') ? (
-            <TableSkeletonLoader rows={4} columns={3} />
-          ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {branches.map((branch) => {
-            const stats = getBranchStats(branch.name);
-            return (
-              <Card key={branch.id}>
-                <CardHeader>
-                  <CardTitle className="flex justify-between items-center">
-                    {branch.name}
-                    <Badge variant="outline">{stats.count} employees</Badge>
-                  </CardTitle>
-                  <CardDescription>Branch Location</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="text-center p-4 bg-blue-50 rounded-lg">
-                      <div className="text-2xl font-bold text-blue-600">{stats.count}</div>
-                      <div className="text-sm text-gray-600">Total Employees</div>
-                    </div>
-                    <div className="text-center p-4 bg-green-50 rounded-lg">
-                      <div className="text-2xl font-bold text-green-600">{stats.managers}</div>
-                      <div className="text-sm text-gray-600">Manager</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-          </div>
-          )}
-        </div>
-      )}
-
-      {active === 'analytics' && (
-        <div className="relative">
-          {isTabLoading('analytics') ? (
-            <TableSkeletonLoader rows={8} columns={2} />
-          ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Age Distribution */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Age Distribution</CardTitle>
-              <CardDescription>Employee age demographics</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {Object.entries(hrMetrics?.ageDistribution || {}).map(([range, count]) => (
-                <div key={range} className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>{range} years</span>
-                    <span>{count} employees</span>
-                  </div>
-                  <Progress 
-                    value={(count / (hrMetrics?.totalEmployees || 1)) * 100} 
-                    className="h-2"
-                  />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          {/* Hiring Trends */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Hiring Trends</CardTitle>
-              <CardDescription>Recent hiring activity</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="text-center p-6 bg-gradient-to-r from-blue-50 to-green-50 rounded-lg">
-                <div className="text-3xl font-bold text-blue-600">{hrMetrics?.newHires || 0}</div>
-                <div className="text-sm text-gray-600">New hires in last 6 months</div>
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>Turnover Rate</span>
-                  <span>{hrMetrics?.turnoverRate || 0}%</span>
-                </div>
-                <Progress value={hrMetrics?.turnoverRate || 0} className="h-2" />
-                <p className="text-xs text-gray-500">Industry average: 15%</p>
-              </div>
-            </CardContent>
-          </Card>
-          </div>
-          )}
-        </div>
-      )}
-
-      {/* Employee Details Modal */}
-      <Dialog open={isEmployeeModalOpen} onOpenChangeAction={setIsEmployeeModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto">
-          {selectedEmployee && (
-            <>
-              <DialogHeader className="pb-6">
-                <DialogTitle className="text-2xl font-bold text-gray-900">Employee Details</DialogTitle>
-                <DialogDescription className="text-base text-gray-600 mt-2">
-                  Complete employee information and profile
-                </DialogDescription>
-              </DialogHeader>
-              
-              <div className="space-y-6">
-                {/* Personal Information */}
-                <div className="bg-gray-50 rounded-lg p-6">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                    <span className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                      <span className="text-blue-600 text-sm font-bold">👤</span>
-                    </span>
-                    Personal Information
-                  </h3>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold text-gray-700">Full Name</Label>
-                      <p className="text-lg text-gray-900 font-medium">{selectedEmployee.name}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold text-gray-700">Email Address</Label>
-                      <p className="text-lg text-gray-900 font-medium">{selectedEmployee.email}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Job Information */}
-                <div className="bg-gray-50 rounded-lg p-6">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                    <span className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
-                      <span className="text-green-600 text-sm font-bold">💼</span>
-                    </span>
-                    Job Information
-                  </h3>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold text-gray-700">Position</Label>
-                      <p className="text-lg text-gray-900 font-medium">{selectedEmployee.position}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold text-gray-700">Role</Label>
-                      <Badge variant="secondary" className="text-base px-3 py-1">
-                        {selectedEmployee.role}
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Organization Information */}
-                <div className="bg-gray-50 rounded-lg p-6">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                    <span className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center mr-3">
-                      <span className="text-purple-600 text-sm font-bold">🏢</span>
-                    </span>
-                    Organization
-                  </h3>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold text-gray-700">Department</Label>
-                      <Badge variant="outline" className="text-base px-3 py-1">
-                        {selectedEmployee.department}
-                      </Badge>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold text-gray-700">Branch</Label>
-                      <p className="text-lg text-gray-900 font-medium">{selectedEmployee.branch}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Employment Details */}
-                <div className="bg-gray-50 rounded-lg p-6">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                    <span className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-                      <span className="text-orange-600 text-sm font-bold">📅</span>
-                    </span>
-                    Employment Details
-                  </h3>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold text-gray-700">Hire Date</Label>
-                      <p className="text-lg text-gray-900 font-medium">
-                        {new Date(selectedEmployee.hireDate).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric'
-                        })}
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold text-gray-700">Employee ID</Label>
-                      <p className="text-lg text-gray-900 font-medium">#{selectedEmployee.id}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <DialogFooter className="pt-4 border-t border-gray-200 mt-4">
-                <div className="flex justify-end space-x-4 w-full">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setIsEmployeeModalOpen(false)}
-                    className="px-8 py-3 text-white font-medium bg-blue-600 hover:bg-blue-700 hover:text-black hover:bg-yellow-500"
-                  >
-                    Close
-                  </Button>
-                </div>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Employee Modal */}
-      <Dialog open={isEditModalOpen} onOpenChangeAction={setIsEditModalOpen}>
-        <DialogContent className="max-w-5xl max-h-[95vh] overflow-y-auto">
-          <DialogHeader className="pb-6">
-            <DialogTitle className="text-2xl font-bold text-gray-900">Edit Employee</DialogTitle>
-            <DialogDescription className="text-base text-gray-600 mt-2">
-              Update employee information and details. All fields marked with * are required.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-8">
-            {/* Personal Information */}
-            <div className="bg-gray-50 rounded-lg p-6">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                <span className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                  <span className="text-blue-600 text-sm font-bold">1</span>
-                </span>
-                Personal Information
-              </h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <Label htmlFor="name" className="text-sm font-semibold text-gray-700 flex items-center">
-                    Full Name <span className="text-red-500 ml-1">*</span>
-                  </Label>
-                  <Input
-                    id="name"
-                    value={editFormData.name || ''}
-                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
-                    placeholder="Enter employee's full name"
-                    className="w-full h-11 text-base"
-                  />
-                </div>
-                <div className="space-y-3">
-                  <Label htmlFor="email" className="text-sm font-semibold text-gray-700 flex items-center">
-                    Email Address <span className="text-red-500 ml-1">*</span>
-                  </Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={editFormData.email || ''}
-                    onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
-                    placeholder="Enter email address"
-                    className="w-full h-11 text-base"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Job Information */}
-            <div className="bg-gray-50 rounded-lg p-6">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                <span className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
-                  <span className="text-green-600 text-sm font-bold">2</span>
-                </span>
-                Job Information
-              </h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <Label htmlFor="position" className="text-sm font-semibold text-gray-700 flex items-center">
-                    Position <span className="text-red-500 ml-1">*</span>
-                  </Label>
-                  <Input
-                    id="position"
-                    value={editFormData.position || ''}
-                    onChange={(e) => setEditFormData({ ...editFormData, position: e.target.value })}
-                    placeholder="Enter job position"
-                    className="w-full h-11 text-base"
-                  />
-                </div>
-                <div className="space-y-3">
-                  <Label htmlFor="role" className="text-sm font-semibold text-gray-700 flex items-center">
-                    Role <span className="text-red-500 ml-1">*</span>
-                  </Label>
-                  <Select 
-                    value={editFormData.role || ''} 
-                    onValueChange={(value) => setEditFormData({ ...editFormData, role: value })}
-                  >
-                    <SelectTrigger className="w-full h-11 text-base">
-                      <SelectValue placeholder="Select employee role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Manager">Manager</SelectItem>
-                      <SelectItem value="Software Developer">Software Developer</SelectItem>
-                      <SelectItem value="Product Manager">Product Manager</SelectItem>
-                      <SelectItem value="UX Designer">UX Designer</SelectItem>
-                      <SelectItem value="Sales Representative">Sales Representative</SelectItem>
-                      <SelectItem value="Customer Support">Customer Support</SelectItem>
-                      <SelectItem value="HR Specialist">HR Specialist</SelectItem>
-                      <SelectItem value="Finance Analyst">Finance Analyst</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
-            {/* Organization Information */}
-            <div className="bg-gray-50 rounded-lg p-6">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                <span className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center mr-3">
-                  <span className="text-purple-600 text-sm font-bold">3</span>
-                </span>
-                Organization
-              </h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <Label htmlFor="department" className="text-sm font-semibold text-gray-700 flex items-center">
-                    Department <span className="text-red-500 ml-1">*</span>
-                  </Label>
-                  <Select 
-                    value={editFormData.department || ''} 
-                    onValueChange={(value) => setEditFormData({ ...editFormData, department: value })}
-                  >
-                    <SelectTrigger className="w-full h-11 text-base">
-                      <SelectValue placeholder="Select department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {departments.map(dept => (
-                        <SelectItem key={dept.id} value={dept.name}>{dept.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-3">
-                  <Label htmlFor="branch" className="text-sm font-semibold text-gray-700 flex items-center">
-                    Branch <span className="text-red-500 ml-1">*</span>
-                  </Label>
-                  <Select 
-                    value={editFormData.branch || ''} 
-                    onValueChange={(value) => setEditFormData({ ...editFormData, branch: value })}
-                  >
-                    <SelectTrigger className="w-full h-11 text-base">
-                      <SelectValue placeholder="Select branch" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {branches.map(branch => (
-                        <SelectItem key={branch.id} value={branch.id}>{branch.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
-            {/* Employment Details */}
-            <div className="bg-gray-50 rounded-lg p-6">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                <span className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-                  <span className="text-orange-600 text-sm font-bold">4</span>
-                </span>
-                Employment Details
-              </h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <Label htmlFor="hireDate" className="text-sm font-semibold text-gray-700 flex items-center">
-                    Hire Date <span className="text-red-500 ml-1">*</span>
-                  </Label>
-                  <Input
-                    id="hireDate"
-                    type="date"
-                    value={editFormData.hireDate || ''}
-                    onChange={(e) => setEditFormData({ ...editFormData, hireDate: e.target.value })}
-                    className="w-full h-11 text-base"
-                  />
-                </div>
-                <div className="space-y-3">
-                  <Label className="text-sm font-semibold text-gray-500">
-                    Employee ID
-                  </Label>
-                  <Input
-                    value={selectedEmployee?.id || ''}
-                    disabled
-                    className="w-full h-11 text-base bg-gray-100 border-gray-200"
-                    placeholder="Auto-generated"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">This field cannot be modified</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter className="pt-4 border-t border-gray-200 mt-4">
-            <div className="flex justify-end space-x-4 w-full">
-              <Button 
-                variant="outline" 
-                onClick={() => {
-                  setIsEditModalOpen(false);
-                  setEditFormData({});
-                  setSelectedEmployee(null);
-                }}
-                className="px-8 py-3 text-base font-medium"
-              >
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleSaveEmployee}
-                className="px-8 py-3 text-base font-medium bg-blue-600 hover:bg-blue-700"
-              >
-                Save Changes
-              </Button>
-            </div>
-                     </DialogFooter>
-         </DialogContent>
-       </Dialog>
-
-       {/* Performance Employees Modal */}
-       <Dialog open={isPerformanceModalOpen} onOpenChangeAction={setIsPerformanceModalOpen}>
-         <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto">
-           <DialogHeader className="pb-6">
-             <DialogTitle className="text-2xl font-bold text-gray-900">
-               {selectedPerformanceLevel.charAt(0).toUpperCase() + selectedPerformanceLevel.slice(1)} Performers
-             </DialogTitle>
-             <DialogDescription className="text-base text-gray-600 mt-2">
-               Employees with {selectedPerformanceLevel} performance rating
-             </DialogDescription>
-           </DialogHeader>
-           
-           <div className="space-y-4">
-             {getPerformanceEmployees(selectedPerformanceLevel).map((employee) => (
-               <div key={employee.id} className="bg-gray-50 rounded-lg p-4">
-                 <div className="flex items-center justify-between">
-                   <div className="flex items-center space-x-4">
-                     <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                       <span className="text-blue-600 font-semibold text-sm">
-                         {employee.name.split(' ').map(n => n[0]).join('')}
-                       </span>
-                     </div>
-                     <div>
-                       <h4 className="font-semibold text-gray-900">{employee.name}</h4>
-                       <p className="text-sm text-gray-600">{employee.position}</p>
-                     </div>
-                   </div>
-                   <div className="text-right">
-                     <Badge variant="outline" className="mb-1">{employee.department}</Badge>
-                     <p className="text-xs text-gray-500">{employee.branch}</p>
-                   </div>
-                 </div>
-                 <div className="mt-3 flex items-center justify-between text-sm">
-                   <span className="text-gray-600">Employee ID: #{employee.id}</span>
-                   <span className="text-gray-600">
-                     Hired: {new Date(employee.hireDate).toLocaleDateString()}
-                   </span>
-                 </div>
-               </div>
-             ))}
-           </div>
-
-           <DialogFooter className="pt-3 border-t border-gray-200 mt-3">
-             <div className="flex justify-end space-x-4 w-full">
-               <Button 
-                 variant="outline" 
-                 onClick={() => setIsPerformanceModalOpen(false)}
-                 className="px-6 py-2"
-               >
-                 Close
-               </Button>
-             </div>
-           </DialogFooter>
-         </DialogContent>
-               </Dialog>
-
-        {/* View Results Modal */}
-        <ViewResultsModal
-          isOpen={isViewResultsModalOpen}
-          onCloseAction={() => setIsViewResultsModalOpen(false)}
-          submission={selectedSubmission}
-        />
-
-        {/* Delete Employee Confirmation Modal */}
-        <AlertDialog
-          open={isDeleteModalOpen}
-          onOpenChangeAction={setIsDeleteModalOpen}
-          title="Delete Employee"
-          description={
-            employeeToDelete 
-              ? `Are you sure you want to delete ${employeeToDelete.name} (${employeeToDelete.position})? This action cannot be undone.`
-              : "Are you sure you want to delete this employee? This action cannot be undone."
-          }
-          type="error"
-          confirmText="Delete Employee"
-          cancelText="Cancel "
-          showCancel={true}
-          onConfirm={confirmDeleteEmployee}
-          onCancel={() => {
-            setEmployeeToDelete(null);
-          }}
-        />
-      </DashboardShell>
+      </div>
     </>
   );
 }

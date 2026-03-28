@@ -31,8 +31,30 @@ type DialogContentProps = React.HTMLAttributes<HTMLDivElement> & {
 
 export function DialogContent({ className, children, ...props }: DialogContentProps) {
   const ctx = React.useContext(DialogContext)
+  const [isAnimating, setIsAnimating] = React.useState(false)
+  const [shouldRender, setShouldRender] = React.useState(false)
+
+  React.useEffect(() => {
+    if (ctx?.open) {
+      setShouldRender(true)
+      // Trigger animation after render
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setIsAnimating(true)
+        })
+      })
+    } else {
+      setIsAnimating(false)
+      // Wait for exit animation before unmounting
+      const timer = setTimeout(() => {
+        setShouldRender(false)
+      }, 300) // Match animation duration
+      return () => clearTimeout(timer)
+    }
+  }, [ctx?.open])
+
   if (!ctx) return null
-  if (!ctx.open) return null
+  if (!shouldRender) return null
 
   if (typeof document === "undefined") return null
 
@@ -42,16 +64,23 @@ export function DialogContent({ className, children, ...props }: DialogContentPr
       aria-modal="true"
       className="fixed inset-0 z-50"
     >
+      {/* Backdrop with fade animation */}
       <div
         aria-hidden
-        className="fixed inset-0 bg-black/60"
+        className={cn(
+          "fixed inset-0 bg-black/60 transition-opacity duration-300",
+          isAnimating ? "opacity-100" : "opacity-0"
+        )}
         onClick={() => ctx.onOpenChangeAction(false)}
       />
       <div className="fixed inset-0 flex items-center justify-center p-4">
         <div
           className={cn(
-            "relative w-full max-w-2xl rounded-lg bg-white shadow-lg outline-none",
-            "animate-in fade-in-0 zoom-in-95",
+            "relative w-full max-w-2xl rounded-lg bg-white shadow-2xl outline-none",
+            "transition-all duration-300 ease-out",
+            isAnimating
+              ? "opacity-100 scale-100 translate-y-0"
+              : "opacity-0 scale-95 translate-y-4",
             className
           )}
           {...props}

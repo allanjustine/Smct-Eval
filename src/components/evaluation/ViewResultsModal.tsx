@@ -1,35 +1,47 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { approveEvaluation } from '@/lib/approvalService';
-import { useEmployeeSignatureByEvaluation } from '@/hooks/useEmployeeSignature';
+import React, { useState, useRef, useEffect } from "react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Printer } from "lucide-react";
+import { useUser } from "@/contexts/UserContext";
+import { CONFIG } from "../../../config/config";
+import apiService from "@/lib/apiService";
 
 type Submission = {
   id: number;
-  employeeName: string;
+  employee: any;
+  evaluator: any;
   category?: string;
   rating?: number;
-  submittedAt: string;
   status: string;
-  evaluator?: string;
-  evaluationData?: any;
-  employeeId?: number;
-  employeeEmail?: string;
-  evaluatorId?: number;
-  evaluatorName?: string;
-  period?: string;
-  overallRating?: string;
-  // Approval-related properties
-  approvalStatus?: string;
-  employeeSignature?: string | null;
-  employeeApprovedAt?: string | null;
-  evaluatorSignature?: string | null;
-  evaluatorApprovedAt?: string | null;
+  coverageFrom: string;
+  coverageTo: string;
+  reviewTypeProbationary: number;
+  reviewTypeRegular: string;
+  reviewTypeOthersImprovement: boolean | number;
+  reviewTypeOthersCustom: string;
+  priorityArea1: string;
+  priorityArea2: string;
+  priorityArea3: string;
+  remarks: string;
+  overallComments: string;
+  evaluatorApprovedAt: string;
+  employeeApprovedAt: string;
+  created_at: string;
+
+  //relations
+  job_knowledge: any;
+  adaptability: any;
+  quality_of_works: any;
+  teamworks: any;
+  reliabilities: any;
+  ethicals: any;
+  customer_services: any;
+  managerial_skills?: any; // For Basic HO evaluations
 };
 
 interface ApprovalData {
@@ -44,42 +56,45 @@ interface ViewResultsModalProps {
   isOpen: boolean;
   onCloseAction: () => void;
   submission: Submission | null;
-  onApprove?: (submissionId: string) => void;
+  onApprove?: (submissionId: number) => void;
   isApproved?: boolean;
   approvalData?: ApprovalData | null;
   currentUserName?: string;
   currentUserSignature?: string; // New prop for current user's signature
   showApprovalButton?: boolean; // New prop to control approval button visibility
-  isEvaluatorView?: boolean; // New prop to indicate if this is being viewed by evaluator
 }
 
 // Helper functions for rating calculations
 const getRatingLabel = (score: number) => {
-  if (score >= 4.5) return 'Outstanding';
-  if (score >= 4.0) return 'Exceeds Expectations';
-  if (score >= 3.5) return 'Meets Expectations';
-  if (score >= 2.5) return 'Needs Improvement';
-  return 'Unsatisfactory';
+  if (score >= 4.5) return "Outstanding";
+  if (score >= 4.0) return "Exceeds Expectations";
+  if (score >= 3.5) return "Meets Expectations";
+  if (score >= 2.5) return "Needs Improvement";
+  return "Unsatisfactory";
 };
 
 const calculateScore = (scores: string[]) => {
-  const validScores = scores.filter(score => score && score !== '').map(score => parseFloat(score));
+  const validScores = scores
+    .filter((score) => score && score !== "")
+    .map((score) => parseFloat(score));
   if (validScores.length === 0) return 0;
-  return validScores.reduce((sum, score) => sum + score, 0) / validScores.length;
+  return (
+    validScores.reduce((sum, score) => sum + score, 0) / validScores.length
+  );
 };
 
 const getRatingColorForLabel = (rating: string) => {
   switch (rating) {
-    case 'Outstanding':
-    case 'Exceeds Expectations':
-      return 'text-green-700 bg-green-100';
-    case 'Needs Improvement':
-    case 'Unsatisfactory':
-      return 'text-red-700 bg-red-100';
-    case 'Meets Expectations':
-      return 'text-yellow-700 bg-yellow-100';
+    case "Outstanding":
+    case "Exceeds Expectations":
+      return "text-green-700 bg-green-100";
+    case "Needs Improvement":
+    case "Unsatisfactory":
+      return "text-red-700 bg-red-100";
+    case "Meets Expectations":
+      return "text-yellow-700 bg-yellow-100";
     default:
-      return 'text-gray-500 bg-gray-100';
+      return "text-gray-500 bg-gray-100";
   }
 };
 
@@ -87,1552 +102,3701 @@ const getRatingColorForLabel = (rating: string) => {
 const getQuarterFromDate = (dateString: string): string => {
   try {
     const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'Unknown';
-    
+    if (isNaN(date.getTime())) return "Unknown";
+
     const month = date.getMonth() + 1; // getMonth() returns 0-11
     const year = date.getFullYear();
-    
+
     if (month >= 1 && month <= 3) return `Q1 ${year}`;
     if (month >= 4 && month <= 6) return `Q2 ${year}`;
     if (month >= 7 && month <= 9) return `Q3 ${year}`;
     if (month >= 10 && month <= 12) return `Q4 ${year}`;
-    
-    return 'Unknown';
+
+    return "Unknown";
   } catch (error) {
-    return 'Unknown';
+    return "Unknown";
   }
 };
 
-const getQuarterColor = (quarter: string) => {
-  if (quarter.includes('Q1')) return 'bg-blue-100 text-blue-800';
-  if (quarter.includes('Q2')) return 'bg-green-100 text-green-800';
-  if (quarter.includes('Q3')) return 'bg-yellow-100 text-yellow-800';
-  if (quarter.includes('Q4')) return 'bg-purple-100 text-purple-800';
-  return 'bg-gray-100 text-gray-800';
-};
-
-export default function ViewResultsModal({ isOpen, onCloseAction, submission, onApprove, isApproved = false, approvalData = null, currentUserName, currentUserSignature, showApprovalButton = false, isEvaluatorView = false }: ViewResultsModalProps) {
+export default function ViewResultsModal({
+  isOpen,
+  onCloseAction,
+  submission,
+  onApprove,
+  isApproved = false,
+  approvalData = null,
+  showApprovalButton = false,
+}: ViewResultsModalProps) {
+  const { user } = useUser();
   const [isApproving, setIsApproving] = useState(false);
-  const [approvalError, setApprovalError] = useState('');
+  const [approvalError, setApprovalError] = useState("");
+  const [currentApprovalData, setCurrentApprovalData] =
+    useState<ApprovalData | null>(approvalData);
+  const printContentRef = useRef<HTMLDivElement>(null);
+  const lastApprovalDataRef = useRef<string>("");
+  const [signatureLoading, setSignatureLoading] = useState(false);
+  const [signatureError, setSignatureError] = useState(false);
+  const [showApprovalDialog, setShowApprovalDialog] = useState(false);
+  const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
 
   // Fetch employee signature for this evaluation
-  const { signature: employeeSignature, loading: signatureLoading, error: signatureError } = useEmployeeSignatureByEvaluation(submission?.id || null);
+  // const {
+  //   signature: employeeSignature,
+  //   loading: signatureLoading,
+  //   error: signatureError,
+  // } = useemployee.signatureByEvaluation(submission?.id || null);
+
+  // Update currentApprovalData when approvalData prop changes
+  useEffect(() => {
+    setCurrentApprovalData(approvalData);
+    if (approvalData) {
+      lastApprovalDataRef.current = JSON.stringify(approvalData);
+    }
+  }, [approvalData]);
+
+  // Compute isApproved status based on current approval data
+  const computedIsApproved = isApproved || !!submission?.employee?.signature;
+
+  // Automatic refresh when approval changes are detected in localStorage
+  useEffect(() => {
+    if (!isOpen || !submission?.id || !user?.email) return;
+
+    const checkForApprovalChanges = () => {
+      try {
+        const approvalDataKey = `approvalData_${user.email}`;
+        const storedApprovals = JSON.parse(
+          localStorage.getItem(approvalDataKey) || "{}"
+        );
+        const submissionId = submission.id.toString();
+        const storedApproval = storedApprovals[submissionId];
+
+        if (storedApproval) {
+          const storedApprovalStr = JSON.stringify(storedApproval);
+
+          // Check if approval data has changed
+          if (storedApprovalStr !== lastApprovalDataRef.current) {
+            lastApprovalDataRef.current = storedApprovalStr;
+
+            // Update the approval data state
+            setCurrentApprovalData({
+              id: storedApproval.id || submissionId,
+              approvedAt: storedApproval.approvedAt,
+              employeeSignature: submission?.employee?.signature || "",
+              employeeName: storedApproval.employeeName,
+              employeeEmail: storedApproval.employeeEmail || user.email,
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error checking for approval changes:", error);
+      }
+    };
+
+    // Check immediately
+    checkForApprovalChanges();
+
+    // Set up polling to check every 2 seconds
+    const intervalId = setInterval(checkForApprovalChanges, 2000);
+
+    // Listen for storage events (for cross-tab synchronization)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (
+        e.key === `approvalData_${user.email}` ||
+        e.key === `approvedEvaluations_${user.email}`
+      ) {
+        checkForApprovalChanges();
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, [isOpen, submission?.id, user?.email]);
+
+  // Handle print functionality - prints the entire modal content
+  const handlePrint = () => {
+    if (!printContentRef.current) {
+      console.warn("Print content not available");
+      return;
+    }
+
+    // Clone the content without no-print elements
+    const clonedContent = printContentRef.current.cloneNode(
+      true
+    ) as HTMLElement;
+    const noPrintElements = clonedContent.querySelectorAll(".no-print");
+    noPrintElements.forEach((el) => el.remove());
+
+    const printWindow = window.open("", "_blank");
+    if (printWindow) {
+      // Get all styles from the current document
+      const styles = Array.from(
+        document.querySelectorAll('style, link[rel="stylesheet"]')
+      )
+        .map((el) => {
+          if (el.tagName === "STYLE") {
+            return `<style>${el.innerHTML}</style>`;
+          } else if (el.tagName === "LINK") {
+            return `<link rel="stylesheet" href="${
+              (el as HTMLLinkElement).href
+            }">`;
+          }
+          return "";
+        })
+        .join("\n");
+
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>${
+              submission
+                ? `Evaluation Details - ${
+                    submission?.employee?.fname && submission?.employee?.lname
+                      ? `${submission.employee.fname} ${submission.employee.lname}`
+                      : "Unknown Employee"
+                  }`
+                : "Evaluation Details"
+            }</title>
+            ${styles}
+            <style>
+              @page { 
+                size: 8.5in 13in; 
+                margin: 1.5cm; 
+              }
+              @media print {
+                * {
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+                body { 
+                  font-family: Calibri, sans-serif; 
+                  font-size: 9px; 
+                  line-height: 1.4;
+                  color: #000;
+                  padding: 0;
+                  margin: 40px;
+                }
+                * {
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 9px !important;
+                }
+                .no-print { display: none !important; }
+                /* Form container - no border, no padding */
+                .space-y-8 {
+                  border: none !important;
+                  padding: 0 !important;
+                  background: white !important;
+                }
+                /* Remove all shadow and border classes in print */
+                .shadow-md,
+                .shadow-sm {
+                  box-shadow: none !important;
+                  border: none !important;
+                  background: transparent !important;
+                }
+                /* Remove all container backgrounds and borders except form container */
+                div:not(.space-y-8) {
+                  background: transparent !important;
+                  background-color: transparent !important;
+                }
+                /* Only allow borders on tables, input lines, and form container */
+                div:not(.space-y-8):not([class*="print-signature"]):not([class*="print-date"]):not([class*="print-priority"]):not([class*="print-remarks"]) {
+                  border: none !important;
+                }
+                /* Title styling */
+                h1, h2, h3 {
+                  text-align: center !important;
+                  margin: 5px 0 !important;
+                }
+                h1 {
+                  font-size: 16px !important;
+                  font-weight: bold !important;
+                }
+                h3 {
+                  font-size: 14px !important;
+                  font-weight: bold !important;
+                  margin-top: 10px !important;
+                }
+                /* Completely remove all card styling in print - no borders, no backgrounds, no containers */
+                [class*="Card"],
+                [class*="Card"] * {
+                  border: none !important;
+                  box-shadow: none !important;
+                  background: transparent !important;
+                  background-color: transparent !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  border-radius: 0 !important;
+                }
+                [class*="CardContent"] {
+                  padding: 0 !important;
+                  border: none !important;
+                  background: transparent !important;
+                  background-color: transparent !important;
+                }
+                [class*="CardHeader"] {
+                  display: none !important;
+                  border: none !important;
+                  background: transparent !important;
+                }
+                /* Remove any gray backgrounds */
+                .bg-gray-50,
+                .bg-gray-100,
+                .bg-gray-200,
+                .bg-yellow-50 {
+                  background: transparent !important;
+                  background-color: transparent !important;
+                }
+                /* Remove all borders from cards */
+                .border,
+                .border-b,
+                .border-2,
+                .border-gray-200,
+                .border-gray-300 {
+                  border: none !important;
+                }
+                /* Review Type - checkbox group style */
+                .print-review-type {
+                  display: flex !important;
+                  flex-direction: column !important;
+                  gap: 1px !important;
+                  margin-top: 2px !important;
+                  margin-bottom: 2px !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                }
+                /* Increase padding for card containing review type */
+                [class*="CardContent"]:has(.print-review-type) {
+                  padding: 15px !important;
+                }
+                .print-review-type > div {
+                  display: flex !important;
+                  align-items: flex-start !important;
+                  gap: 8px !important;
+                  text-align: left !important;
+                  padding: 2px 0 !important;
+                  margin: 0 !important;
+                  line-height: 1.2 !important;
+                }
+                .print-review-type h5 {
+                  font-weight: normal !important;
+                  margin-bottom: 0 !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  min-width: 120px !important;
+                  flex-shrink: 0 !important;
+                  line-height: 1.4 !important;
+                  padding: 0 !important;
+                }
+                .print-review-type .space-y-2,
+                .print-review-type .space-y-3,
+                .print-review-type .space-y-6 {
+                  margin: 0 !important;
+                }
+                .print-review-type .space-y-2 > *,
+                .print-review-type .space-y-3 > *,
+                .print-review-type .space-y-6 > * {
+                  margin: 0px 0 !important;
+                }
+                /* Horizontal rows for radio buttons */
+                .print-review-type .flex-row {
+                  display: flex !important;
+                  flex-direction: row !important;
+                  gap: 15px !important;
+                  flex-wrap: wrap !important;
+                }
+                .print-review-type .flex-col {
+                  display: flex !important;
+                  flex-direction: column !important;
+                  gap: 5px !important;
+                }
+                .print-review-type .flex {
+                  display: flex !important;
+                  align-items: center !important;
+                  gap: 8px !important;
+                }
+                .print-review-type span {
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  line-height: 1.2 !important;
+                }
+                /* Make checkboxes more visible in print */
+                .print-review-type .w-4 {
+                  width: 12px !important;
+                  height: 12px !important;
+                  border: 1px solid #000 !important;
+                  min-width: 12px !important;
+                  min-height: 12px !important;
+                }
+                .print-review-type .w-2 {
+                  width: 5px !important;
+                  height: 5px !important;
+                }
+                .print-review-type .bg-green-500 {
+                  background-color: #22c55e !important;
+                  border: 1px solid #000 !important;
+                }
+                .print-review-type .bg-gray-300 {
+                  background-color: #d1d5db !important;
+                  border: 1px solid #000 !important;
+                }
+                .print-review-type .w-2 {
+                  width: 6px !important;
+                  height: 6px !important;
+                  background-color: #fff !important;
+                }
+                .print-review-type span {
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  color: #000 !important;
+                }
+                /* Grid layout for For Regular section (2x2) */
+                .print-review-type .grid {
+                  display: grid !important;
+                }
+                .print-review-type .grid-cols-2 {
+                  grid-template-columns: 1fr 1fr !important;
+                }
+                .print-review-type .flex {
+                  display: flex !important;
+                  align-items: center !important;
+                  gap: 8px !important;
+                }
+                .print-review-type .flex-row {
+                  display: flex !important;
+                  flex-direction: row !important;
+                  gap: 16px !important;
+                }
+                /* Basic Information - two column layout with horizontal alignment */
+                .print-basic-info {
+                  display: grid !important;
+                  grid-template-columns: 1fr 1fr !important;
+                  gap: 0 !important;
+                  margin-top: 5px !important;
+                  column-gap: 30px !important;
+                  row-gap: 2px !important;
+                }
+                .print-basic-info > div {
+                  display: flex !important;
+                  justify-content: flex-start !important;
+                  align-items: baseline !important;
+                  gap: 4px !important;
+                  margin: 0 !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  text-align: left !important;
+                  padding: 0 !important;
+                  line-height: 1.2 !important;
+                }
+                /* Row 1: Employee Name (left) | Date Hired (right) */
+                .print-basic-info > div:nth-child(1) {
+                  grid-column: 1 !important;
+                  grid-row: 1 !important;
+                }
+                .print-basic-info > div:nth-child(5) {
+                  grid-column: 2 !important;
+                  grid-row: 1 !important;
+                }
+                /* Row 2: Employee Number (left) | Immediate Supervisor (right) */
+                .print-basic-info > div:nth-child(2) {
+                  grid-column: 1 !important;
+                  grid-row: 2 !important;
+                }
+                .print-basic-info > div:nth-child(6) {
+                  grid-column: 2 !important;
+                  grid-row: 2 !important;
+                }
+                /* Row 3: Position (left) | Performance Coverage (right) */
+                .print-basic-info > div:nth-child(3) {
+                  grid-column: 1 !important;
+                  grid-row: 3 !important;
+                }
+                .print-basic-info > div:nth-child(7) {
+                  grid-column: 2 !important;
+                  grid-row: 3 !important;
+                }
+                /* Row 4: Department/Branch (left only) */
+                .print-basic-info > div:nth-child(4) {
+                  grid-column: 1 !important;
+                  grid-row: 4 !important;
+                }
+                .print-basic-info > div > label {
+                  font-weight: normal !important;
+                  width: auto !important;
+                  flex-shrink: 0 !important;
+                  margin-right: 0 !important;
+                  color: #000 !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                }
+                .print-basic-info > div > p {
+                  border-bottom: 1px solid #000 !important;
+                  flex: 1 !important;
+                  min-width: 0 !important;
+                  height: auto !important;
+                  line-height: 1 !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  padding-bottom: 1px !important;
+                  text-align: left !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  font-weight: bold !important;
+                }
+                /* Remove block display from label in print */
+                .print-basic-info .print-label {
+                  display: inline !important;
+                  margin-bottom: 0 !important;
+                  color: #000 !important;
+                }
+                .print-basic-info .print-value {
+                  display: inline !important;
+                }
+                /* Hide screen date, show print date in print */
+                .screen-date {
+                  display: none !important;
+                }
+                .print-date {
+                  display: inline !important;
+                }
+                /* Make Performance Coverage date bigger */
+                .print-basic-info .print-date {
+                  font-size: 14px !important;
+                  font-weight: bold !important;
+                  font-family: Calibri, sans-serif !important;
+                }
+                /* Table styling */
+                table {
+                  width: 100% !important;
+                  border-collapse: collapse !important;
+                  margin-top: 10px !important;
+                }
+                table, td, th {
+                  border: 1px solid #000 !important;
+                  padding: 5px !important;
+                  font-size: 13px !important;
+                }
+                th {
+                  background-color: #d9d9d9 !important;
+                  font-weight: bold !important;
+                }
+                tr { page-break-inside: avoid; }
+                thead { display: table-header-group; }
+                img { max-width: 100%; height: auto; page-break-inside: avoid; }
+                /* Section titles */
+                h4 {
+                  font-weight: bold !important;
+                  margin-top: 8px !important;
+                  border-bottom: 2px solid #000 !important;
+                  padding-bottom: 2px !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  text-transform: uppercase !important;
+                  margin-bottom: 3px !important;
+                }
+                /* Priority Areas - remove underline from header */
+                .print-priority-header {
+                  border-bottom: none !important;
+                  padding-bottom: 0 !important;
+                  margin-bottom: 4px !important;
+                }
+                /* Reduce spacing between Performance Score and Priority Areas */
+                [class*="Card"]:has(.print-priority-header) {
+                  margin-top: 2px !important;
+                  margin-bottom: 2px !important;
+                }
+                [class*="CardContent"]:has(.print-priority-header) {
+                  padding-top: 8px !important;
+                  padding-bottom: 8px !important;
+                }
+                /* Reduce spacing between Priority Areas and Remarks */
+                [class*="Card"]:has(.print-remarks-header) {
+                  margin-top: 2px !important;
+                  margin-bottom: 2px !important;
+                }
+                [class*="CardContent"]:has(.print-remarks-header) {
+                  padding-top: 8px !important;
+                  padding-bottom: 8px !important;
+                }
+                /* Reduce spacing between Remarks and Acknowledgement */
+                [class*="Card"]:has(.print-acknowledgement-header) {
+                  margin-top: 2px !important;
+                }
+                [class*="CardContent"]:has(.print-acknowledgement-header) {
+                  padding-top: 8px !important;
+                }
+                /* Remarks - remove underline from header */
+                .print-remarks-header {
+                  border-bottom: none !important;
+                  padding-bottom: 0 !important;
+                  margin-bottom: 4px !important;
+                }
+                /* Acknowledgement - remove underline from header */
+                .print-acknowledgement-header {
+                  border-bottom: none !important;
+                  padding-bottom: 0 !important;
+                  margin-bottom: 4px !important;
+                }
+                /* Priority Areas - underline style like basic info */
+                .print-priority-item {
+                  background: transparent !important;
+                  background-color: transparent !important;
+                  border: none !important;
+                  padding: 0 !important;
+                  margin: 0 !important;
+                }
+                .print-priority-row {
+                  display: flex !important;
+                  justify-content: flex-start !important;
+                  align-items: baseline !important;
+                  gap: 4px !important;
+                  margin: 0 !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  text-align: left !important;
+                  padding: 0 !important;
+                }
+                .print-priority-label {
+                  font-weight: bold !important;
+                  width: auto !important;
+                  flex-shrink: 0 !important;
+                  margin-right: 0 !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                }
+                .print-priority-value {
+                  border-bottom: 1px solid #000 !important;
+                  flex: 1 !important;
+                  min-width: 0 !important;
+                  height: auto !important;
+                  line-height: 1 !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  padding-bottom: 1px !important;
+                  text-align: left !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                }
+                /* Priority Areas description text */
+                .print-priority-description {
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  color: #000 !important;
+                }
+                /* Remarks - large box style */
+                .print-remarks-box {
+                  width: 100% !important;
+                  height: 60px !important;
+                  border: 1px solid #000 !important;
+                  margin-top: 3px !important;
+                  padding: 2px !important;
+                  background: white !important;
+                  background-color: white !important;
+                }
+                .print-remarks-box p {
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                }
+                /* Remarks description text */
+                [class*="CardContent"]:has(.print-remarks-box) p:not(.print-remarks-box p) {
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                }
+                /* Remove gray backgrounds from remarks in print */
+                .print-remarks-box .bg-yellow-50 {
+                  background: transparent !important;
+                  background-color: transparent !important;
+                  border: none !important;
+                  padding: 1px 2px !important;
+                  margin: 1px 0 !important;
+                }
+                /* Acknowledgement section */
+                .print-acknowledgement {
+                  display: flex !important;
+                  justify-content: space-between !important;
+                  margin-top: 5px !important;
+                  margin-bottom: 0 !important;
+                }
+                .print-acknowledgement > div {
+                  width: 45% !important;
+                  text-align: center !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                }
+                /* Signature boxes - print format - remove all containers */
+                .print-acknowledgement .h-20,
+                .print-acknowledgement [class*="border-dashed"],
+                .print-acknowledgement [class*="rounded"] {
+                  border: none !important;
+                  background: transparent !important;
+                  background-color: transparent !important;
+                  height: auto !important;
+                  padding: 0 !important;
+                  border-radius: 0 !important;
+                }
+                /* Show name text in print */
+                .print-acknowledgement .h-20 > span:not(.print-signature-line) {
+                  display: block !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  font-weight: bold !important;
+                  margin-bottom: 5px !important;
+                  position: relative !important;
+                  z-index: 1 !important;
+                }
+                .print-signature-line {
+                  border-bottom: 1px solid #000 !important;
+                  width: 100% !important;
+                  height: 1px !important;
+                  margin-top: 5px !important;
+                  display: block !important;
+                  background: transparent !important;
+                  position: relative !important;
+                }
+                /* Show signature images in print */
+                .print-acknowledgement img {
+                  display: block !important;
+                  max-height: 40px !important;
+                  max-width: 100% !important;
+                  object-fit: contain !important;
+                  margin: 0 auto !important;
+                }
+                /* Remove all rounded corners and borders from signature containers */
+                .print-acknowledgement [class*="rounded-lg"],
+                .print-acknowledgement [class*="border-2"] {
+                  border: none !important;
+                  border-radius: 0 !important;
+                  background: transparent !important;
+                }
+                /* Date box */
+                .print-date-box {
+                  border-bottom: 1px solid #000 !important;
+                  width: 150px !important;
+                  height: 18px !important;
+                  display: inline-block !important;
+                  padding: 0 5px !important;
+                }
+                .print-date-section {
+                  margin-top: 8px !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                }
+                /* Acknowledgement description text */
+                .print-acknowledgement-description {
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  color: #000 !important;
+                }
+                /* Acknowledgement text */
+                .print-acknowledgement p {
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  margin-bottom: 3px !important;
+                  line-height: 1.2 !important;
+                }
+                /* Signature container styling in print */
+                .print-acknowledgement .h-20 {
+                  position: relative !important;
+                  min-height: 45px !important;
+                  display: flex !important;
+                  flex-direction: column !important;
+                  align-items: center !important;
+                  justify-content: flex-end !important;
+                  padding: 3px 0 0 0 !important;
+                  margin: 0 !important;
+                  margin-bottom: 0 !important;
+                }
+                /* Show name text in print - at the lower part */
+                .print-acknowledgement .h-20 > span:not(.print-signature-line) {
+                  display: block !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  font-weight: bold !important;
+                  margin-bottom: 1px !important;
+                  position: absolute !important;
+                  bottom: 2px !important;
+                  top: auto !important;
+                  left: 50% !important;
+                  transform: translateX(-50%) !important;
+                  order: 1 !important;
+                  z-index: 1 !important;
+                  line-height: 1 !important;
+                }
+                /* Show signature images in print - at the lower part, positioned to the right */
+                .print-acknowledgement .h-20 img,
+                .print-acknowledgement .h-20 img[class*="top-7"],
+                .print-acknowledgement .h-20 img[class*="top-"],
+                .print-acknowledgement .h-20 img[class*="transform"],
+                .print-acknowledgement .h-20 img[class*="translate"],
+                .print-acknowledgement .h-20 img[class*="left-1/2"] {
+                  display: block !important;
+                  max-height: 40px !important;
+                  max-width: 100% !important;
+                  object-fit: contain !important;
+                  position: absolute !important;
+                  bottom: -25px !important;
+                  top: auto !important;
+                  right: -50px !important;
+                  left: auto !important;
+                  transform: none !important;
+                  -webkit-transform: none !important;
+                  margin: 0 !important;
+                  order: 2 !important;
+                  z-index: 10 !important;
+                }
+                /* Force override any inline styles or Tailwind utilities */
+                @media print {
+                  .print-acknowledgement .h-20 img {
+                    bottom: -25px !important;
+                    top: auto !important;
+                    right: -50px !important;
+                    left: auto !important;
+                    transform: none !important;
+                  }
+                }
+                /* Signature line - at the bottom */
+                .print-signature-line {
+                  position: relative !important;
+                  width: 100% !important;
+                  border-bottom: 1px solid #000 !important;
+                  height: 1px !important;
+                  margin-top: 0 !important;
+                  margin-bottom: 0 !important;
+                  padding: 0 !important;
+                  order: 3 !important;
+                  flex-shrink: 0 !important;
+                }
+                /* Label and date under the underline - print only */
+                .print-acknowledgement > div > div:last-child,
+                .print-acknowledgement > div > div:nth-last-child(2) {
+                  margin-top: 0 !important;
+                }
+                .print-acknowledgement > div > div:last-child > div,
+                .print-acknowledgement > div > div:nth-last-child(2) > div {
+                  margin-top: 0 !important;
+                  margin-bottom: 0 !important;
+                }
+                .print-acknowledgement > div > div:last-child > div > div,
+                .print-acknowledgement > div > div:nth-last-child(2) > div > div {
+                  margin-top: 0 !important;
+                }
+                /* Reduce spacing for signature label and date in print */
+                .print-acknowledgement .text-xs.text-gray-500 {
+                  margin-top: 0 !important;
+                  margin-bottom: 0 !important;
+                  padding-top: 0 !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  line-height: 1 !important;
+                  color: #000 !important;
+                }
+                /* Remove all spacing between signature line and labels */
+                .print-acknowledgement .h-20 + div {
+                  margin-top: 0 !important;
+                  padding-top: 0 !important;
+                }
+                /* Override mt-1 class in print - remove all margin */
+                .print-acknowledgement .mt-1 {
+                  margin-top: 0 !important;
+                  padding-top: 0 !important;
+                }
+                /* Target label divs directly after signature container */
+                .print-acknowledgement .text-center > .h-20 + div.text-xs {
+                  margin-top: 0 !important;
+                  padding-top: 0 !important;
+                }
+                .print-acknowledgement .text-center {
+                  margin-top: 0 !important;
+                  margin-bottom: 0 !important;
+                  padding: 0 !important;
+                  display: flex !important;
+                  flex-direction: column !important;
+                  justify-content: flex-end !important;
+                }
+                /* Move signature area lower to be closer to labels */
+                .print-acknowledgement .text-center > .h-20 {
+                  margin-bottom: 0 !important;
+                }
+                .print-acknowledgement .text-center p {
+                  margin-top: 0 !important;
+                  margin-bottom: 0 !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                  line-height: 1 !important;
+                  color: #000 !important;
+                }
+                /* Make all text in acknowledgement section black in print */
+                .print-acknowledgement .text-gray-500 {
+                  color: #000 !important;
+                }
+                .print-acknowledgement .print-date-value {
+                  color: #000 !important;
+                }
+                .print-acknowledgement .space-y-4 {
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  gap: 0 !important;
+                }
+                .print-acknowledgement .space-y-4 > * {
+                  margin-top: 0 !important;
+                  margin-bottom: 0 !important;
+                }
+                /* Remove spacing between signature area and date (row 2) */
+                .print-acknowledgement .space-y-4 > div:not(:first-child) {
+                  margin-top: 0 !important;
+                }
+                /* Specifically target date sections */
+                .print-acknowledgement .space-y-4 > div.text-center:last-child {
+                  margin-top: 0 !important;
+                }
+                /* Confidentiality Notice */
+                .print-confidentiality-notice {
+                  margin-top: 12px !important;
+                  margin-bottom: 8px !important;
+                  padding: 8px 0 !important;
+                  border-top: 1px solid #000 !important;
+                  border-bottom: 1px solid #000 !important;
+                }
+                .print-confidentiality-notice p {
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 10px !important;
+                  color: #000 !important;
+                  line-height: 1.4 !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  text-align: justify !important;
+                }
+                .print-confidentiality-notice strong {
+                  font-weight: bold !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 12px !important;
+                }
+                /* Hide detailed step sections in print */
+                .hide-in-print {
+                  display: none !important;
+                }
+                /* Overall Assessment table */
+                .print-overall-assessment-wrapper [class*="Card"] {
+                  border: none !important;
+                  box-shadow: none !important;
+                  padding: 0 !important;
+                  margin: 0 !important;
+                  background: transparent !important;
+                }
+                .print-overall-assessment-wrapper [class*="CardContent"] {
+                  padding: 0 !important;
+                  border: none !important;
+                  background: transparent !important;
+                }
+                .print-overall-assessment-wrapper h3 {
+                  font-size: 11px !important;
+                  margin-bottom: 2px !important;
+                  margin-top: 4px !important;
+                  text-align: left !important;
+                  font-family: Calibri, sans-serif !important;
+                }
+                .print-overall-assessment-table {
+                  border: none !important;
+                  width: 100% !important;
+                  border-collapse: collapse !important;
+                  margin-top: 2px !important;
+                  margin-bottom: 4px !important;
+                  font-size: 12px !important;
+                  font-family: Calibri, sans-serif !important;
+                }
+                .print-overall-assessment-table th,
+                .print-overall-assessment-table td {
+                  border: 1px solid #000 !important;
+                  padding: 1px 2px !important;
+                  font-size: 12px !important;
+                  text-align: center !important;
+                  line-height: 1.1 !important;
+                  font-family: Calibri, sans-serif !important;
+                }
+                .print-overall-assessment-table th {
+                  background-color: #d9d9d9 !important;
+                  font-weight: bold !important;
+                  padding: 2px 2px !important;
+                  font-size: 12px !important;
+                  font-family: Calibri, sans-serif !important;
+                }
+                .print-overall-assessment-table td:first-child {
+                  text-align: left !important;
+                }
+                /* Override Tailwind font-size classes in print */
+                .print-overall-assessment-table th.text-base,
+                .print-overall-assessment-table td.text-base,
+                .print-overall-assessment-table td.text-sm,
+                .print-overall-assessment-table td.text-lg {
+                  font-size: 12px !important;
+                }
+                .print-overall-assessment-table .text-sm {
+                  font-size: 12px !important;
+                }
+                .print-overall-assessment-table .text-base {
+                  font-size: 12px !important;
+                }
+                .print-overall-assessment-table .text-lg {
+                  font-size: 12px !important;
+                }
+                /* Adjust Performance Criteria column (1st column) width - smaller */
+                .print-overall-assessment-table th:first-child,
+                .print-overall-assessment-table td:first-child {
+                  width: 60px !important;
+                  min-width: 50px !important;
+                  max-width: 80px !important;
+                  padding: 1px 2px !important;
+                  line-height: 1 !important;
+                }
+                /* Make Score column (3rd column) narrower */
+                .print-overall-assessment-table th:nth-child(3),
+                .print-overall-assessment-table td:nth-child(3) {
+                  width: 18px !important;
+                  min-width: 18px !important;
+                  max-width: 18px !important;
+                  padding: 1px 1px !important;
+                  overflow: hidden !important;
+                  text-overflow: ellipsis !important;
+                  white-space: nowrap !important;
+                }
+                /* Rating column (2nd column) - smaller */
+                .print-overall-assessment-table th:nth-child(2),
+                .print-overall-assessment-table td:nth-child(2) {
+                  width: 50px !important;
+                  min-width: 50px !important;
+                  max-width: 50px !important;
+                  padding: 1px 2px !important;
+                }
+                .print-overall-assessment-table tbody tr:last-child {
+                  background-color: #e8e8e8 !important;
+                  font-weight: bold !important;
+                }
+                .print-overall-assessment-table tbody tr:last-child td:first-child {
+                  text-align: right !important;
+                }
+                /* Hide rating badges in print - show only text */
+                .screen-rating-badge {
+                  display: inline;
+                }
+                .print-rating-text {
+                  display: none;
+                }
+                @media print {
+                  .screen-rating-badge {
+                    display: none !important;
+                  }
+                  .print-rating-text {
+                    display: inline !important;
+                    background: transparent !important;
+                    background-color: transparent !important;
+                    padding: 0 !important;
+                    border-radius: 0 !important;
+                    color: #000 !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                    font-weight: normal !important;
+                  }
+                  .print-overall-assessment-table td div {
+                    display: inline !important;
+                    padding: 0 !important;
+                    margin: 0 !important;
+                  }
+                  .print-overall-assessment-table td div.flex {
+                    display: inline !important;
+                    justify-content: center !important;
+                    align-items: center !important;
+                    gap: 0 !important;
+                    space-x: 0 !important;
+                  }
+                }
+                /* Performance Score section - boxed in print */
+                .print-performance-score-wrapper {
+                  display: flex !important;
+                  justify-content: flex-end !important;
+                  align-items: center !important;
+                  gap: 8px !important;
+                  margin-top: 5px !important;
+                  margin-bottom: 2px !important;
+                  border: 2px solid #000 !important;
+                  padding: 8px 15px !important;
+                  width: fit-content !important;
+                  margin-left: auto !important;
+                  background: white !important;
+                  box-sizing: border-box !important;
+                  font-family: Calibri, sans-serif !important;
+                }
+                .print-performance-score-wrapper > div:first-child {
+                  text-align: right !important;
+                  margin-right: 12px !important;
+                }
+                .print-performance-score-wrapper > div:first-child > div:first-child {
+                  font-size: 16px !important;
+                  font-weight: bold !important;
+                  line-height: 1.2 !important;
+                  margin: 0 !important;
+                  font-family: Calibri, sans-serif !important;
+                }
+                .print-performance-score-wrapper > div:first-child > div:last-child {
+                  font-size: 11px !important;
+                  color: #000 !important;
+                  margin-top: 2px !important;
+                  line-height: 1.2 !important;
+                  font-family: Calibri, sans-serif !important;
+                }
+                .print-performance-score-wrapper > div:last-child {
+                  padding: 4px 10px !important;
+                  border-radius: 2px !important;
+                  font-size: 12px !important;
+                  font-weight: bold !important;
+                  line-height: 1.3 !important;
+                  color: white !important;
+                  display: block !important;
+                  font-family: Calibri, sans-serif !important;
+                }
+                /* Ensure PASS/FAIL badge colors show in print */
+                .print-performance-score-wrapper > div:last-child.bg-green-600 {
+                  background-color: #16a34a !important;
+                  color: white !important;
+                }
+                .print-performance-score-wrapper > div:last-child.bg-red-600 {
+                  background-color: #dc2626 !important;
+                  color: white !important;
+                }
+                /* Remove spacing between sections */
+                .space-y-8 > * {
+                  margin-bottom: 0 !important;
+                }
+                /* Print Footer */
+                .print-footer {
+                  display: block !important;
+                  position: fixed !important;
+                  bottom: 0 !important;
+                  left: 0 !important;
+                  right: 0 !important;
+                  width: 100% !important;
+                  padding: 8px 1.5cm !important;
+                  margin: 0 !important;
+                  border-top: 1px solid #000 !important;
+                  background: white !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 10px !important;
+                  line-height: 1.4 !important;
+                  text-align: center !important;
+                  color: #000 !important;
+                }
+                .print-footer p {
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  font-family: Calibri, sans-serif !important;
+                  font-size: 10px !important;
+                  line-height: 1.4 !important;
+                  color: #000 !important;
+                }
+              }
+            </style>
+          </head>
+          <body>
+            ${clonedContent.innerHTML}
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    }
+  };
 
   if (!submission) return null;
 
+  // Check if the evaluated employee is a branch employee (not HO)
+  // Similar to how Step2.tsx checks for HO to show/hide Job Targets
+  const isEmployeeBranch = () => {
+    if (!submission.employee) return false;
+    
+    // Handle branches as array
+    if (Array.isArray(submission.employee.branches)) {
+      const branch = submission.employee.branches[0];
+      if (branch) {
+        const branchName = branch.branch_name?.toUpperCase() || "";
+        const branchCode = branch.branch_code?.toUpperCase() || "";
+        const isHO = (
+          branchName === "HO" || 
+          branchCode === "HO" || 
+          branchName.includes("HEAD OFFICE") ||
+          branchCode.includes("HEAD OFFICE") ||
+          branchName === "HEAD OFFICE" ||
+          branchCode === "HEAD OFFICE"
+        );
+        // Return true if NOT HO (i.e., is a branch employee)
+        return !isHO;
+      }
+    }
+    
+    // Handle branches as object
+    if (typeof submission.employee.branches === 'object') {
+      const branchName = (submission.employee.branches as any)?.branch_name?.toUpperCase() || "";
+      const branchCode = (submission.employee.branches as any)?.branch_code?.toUpperCase() || "";
+      const isHO = (
+        branchName === "HO" || 
+        branchCode === "HO" || 
+        branchName.includes("HEAD OFFICE") ||
+        branchCode.includes("HEAD OFFICE") ||
+        branchName === "HEAD OFFICE" ||
+        branchCode === "HEAD OFFICE"
+      );
+      // Return true if NOT HO (i.e., is a branch employee)
+      return !isHO;
+    }
+    
+    // Fallback: check if branch field exists directly
+    if ((submission.employee as any).branch) {
+      const branchName = String((submission.employee as any).branch).toUpperCase();
+      const isHO = (
+        branchName === "HO" || 
+        branchName === "HEAD OFFICE" ||
+        branchName.includes("HEAD OFFICE") ||
+        branchName.includes("/HO")
+      );
+      return !isHO;
+    }
+    
+    return false;
+  };
+
+  const isBranchEmp = isEmployeeBranch();
+
+  // Determine evaluation type based on submission data
+  const hasCustomerService = submission.customer_services && 
+    Array.isArray(submission.customer_services) && 
+    submission.customer_services.length > 0;
+  const hasManagerialSkills = submission.managerial_skills && 
+    Array.isArray(submission.managerial_skills) && 
+    submission.managerial_skills.length > 0;
+  
+  let evaluationType: 'rankNfile' | 'basic' | 'default' = 'default';
+  if (!hasCustomerService && hasManagerialSkills) {
+    evaluationType = 'basic'; // Basic HO - has Managerial Skills, no Customer Service
+  } else if (!hasCustomerService && !hasManagerialSkills) {
+    evaluationType = 'rankNfile'; // RankNfile HO - no Customer Service, no Managerial Skills
+  } else {
+    evaluationType = 'default'; // Default - has Customer Service
+  }
+
+  // Use stored rating from backend if available to match evaluation records table
+  const finalRatingRaw =
+    submission.rating !== undefined && submission.rating !== null
+      ? Number(submission.rating)
+      : (() => {
+          const job_knowledgeScore = calculateScore(
+            (submission.job_knowledge || []).map((item: any) =>
+              String(item.score)
+            )
+          );
+          const quality_of_workScore = calculateScore(
+            (submission.quality_of_works || []).map((item: any) =>
+              String(item.score)
+            )
+          );
+          const adaptabilityScore = calculateScore(
+            (submission.adaptability || []).map((item: any) =>
+              String(item.score)
+            )
+          );
+          const teamworkScore = calculateScore(
+            (submission.teamworks || []).map((item: any) =>
+              String(item.score)
+            )
+          );
+          const reliabilityScore = calculateScore(
+            (submission.reliabilities || []).map((item: any) =>
+              String(item.score)
+            )
+          );
+          const ethicalScore = calculateScore(
+            (submission.ethicals || []).map((item: any) =>
+              String(item.score)
+            )
+          );
+
+          // Calculate overall weighted score based on evaluation type
+          if (evaluationType === 'rankNfile') {
+            // RankNfile HO: 25%, 25%, 15%, 15%, 10%, 10% (no Customer Service)
+            return (
+              job_knowledgeScore * 0.25 +
+              quality_of_workScore * 0.25 +
+              adaptabilityScore * 0.15 +
+              teamworkScore * 0.15 +
+              reliabilityScore * 0.1 +
+              ethicalScore * 0.1
+            );
+          } else if (evaluationType === 'basic') {
+            // Basic HO: 25%, 25%, 15%, 15%, 10%, 10% + Managerial Skills 30%
+            const managerial_skillsScore = submission.managerial_skills
+              ? calculateScore(
+                  (submission.managerial_skills || []).map((item: any) =>
+                    String(item.score)
+                  )
+                )
+              : 0;
+            return (
+              job_knowledgeScore * 0.25 +
+              quality_of_workScore * 0.25 +
+              adaptabilityScore * 0.15 +
+              teamworkScore * 0.15 +
+              reliabilityScore * 0.1 +
+              ethicalScore * 0.1 +
+              managerial_skillsScore * 0.3
+            );
+          } else {
+            // Default: 20%, 20%, 10%, 10%, 5%, 5%, 30% (with Customer Service)
+            const customer_serviceScore = submission.customer_services
+              ? calculateScore(
+                  (submission.customer_services || []).map((item: any) =>
+                    String(item.score)
+                  )
+                )
+              : 0;
+            return (
+              job_knowledgeScore * 0.2 +
+              quality_of_workScore * 0.2 +
+              adaptabilityScore * 0.1 +
+              teamworkScore * 0.1 +
+              reliabilityScore * 0.05 +
+              ethicalScore * 0.05 +
+              customer_serviceScore * 0.3
+            );
+          }
+        })();
+
+  const finalRating = Number.isFinite(finalRatingRaw)
+    ? Number(finalRatingRaw)
+    : 0;
+  const finalRatingRounded = Number(finalRating.toFixed(2));
+  const finalPercentage = Number(
+    ((finalRatingRounded / 5) * 100).toFixed(2)
+  );
+  const finalIsPass = finalRatingRounded >= 3.0;
 
   // Handle approval API call
   const handleApproveEvaluation = async () => {
     if (!submission.id) {
-      setApprovalError('Invalid submission ID');
+      setApprovalError("Invalid submission ID");
+      return;
+      
+    }
+    if (!submission?.employee?.signature) {
+      setApprovalError("Signature required");
       return;
     }
 
     setIsApproving(true);
-    setApprovalError('');
+    setApprovalError("");
+    setShowApprovalDialog(true);
+    setShowSuccessAnimation(false);
 
     try {
-      // For development: Use mock service
-      // For production: Replace with actual API call
-      const result = await approveEvaluation({
-        submissionId: submission.id,
-        employeeId: submission.employeeId || 0,
-        approvedAt: new Date().toISOString(),
-        employeeName: currentUserName || submission.employeeName
-      });
+      // Show loading for 2 seconds
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      // Call the parent component's onApprove callback if provided
       if (onApprove) {
-        onApprove(submission.id.toString());
+        onApprove(submission.id);
       }
 
-      // Show success message
-      console.log('✅ Evaluation approved successfully:', result);
-      
-      // TODO: Replace with actual API call when backend is ready:
-      /*
-      const response = await fetch('/api/evaluations/approve', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          submissionId: submission.id,
-          employeeId: submission.employeeId,
-          approvedAt: new Date().toISOString(),
-          employeeName: currentUserName || submission.employeeName
-        })
-      });
+      // Show success animation
+      setShowSuccessAnimation(true);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      */
-      
+      // Close dialog after showing success for 1.5 seconds
+      setTimeout(() => {
+        setShowApprovalDialog(false);
+        setShowSuccessAnimation(false);
+        setIsApproving(false);
+      }, 1500);
     } catch (error) {
-      console.error('❌ Error approving evaluation:', error);
-      setApprovalError('Failed to approve evaluation. Please try again.');
-    } finally {
+      console.error("❌ Error approving evaluation:", error);
+      setApprovalError("Failed to approve evaluation. Please try again.");
+      setShowApprovalDialog(false);
+      setShowSuccessAnimation(false);
       setIsApproving(false);
     }
   };
 
+  const ratingBG = (value: number) => {
+    switch (value) {
+      case 1:
+        return "bg-red-100 text-red-800";
+      case 2:
+        return "bg-orange-100 text-orange-800";
+      case 3:
+        return "bg-yellow-100 text-yellow-800";
+      case 4:
+        return "bg-blue-100 text-blue-800";
+      case 5:
+        return "bg-green-100 text-green-800";
+      default:
+        return "";
+    }
+  };
+  const rating = (value: number) => {
+    switch (value) {
+      case 1:
+        return "Unsatisfactory";
+      case 2:
+        return "Needs Improvement";
+      case 3:
+        return "Meets Expectations";
+      case 4:
+        return "Exceeds Expectation";
+      case 5:
+        return "Outstanding";
+      default:
+        return "Not Rated";
+    }
+  };
+
+  const JOB_KNOWLEDGE = {
+    1: {
+      title:
+        "Mastery in Core Competencies and Job Understanding (L.E.A.D.E.R.)",
+      indicator:
+        "  Exhibits mastery in essential skills and competencies required for the role. Displays a deep understanding of job responsibilities and requirements",
+      example:
+        "Consistently performs tasks accurately and with precision, showing a deep understanding of core job functions.",
+    },
+    2: {
+      title: "Keeps Documentation Updated",
+      indicator:
+        " Maintains accurate and up-to-date documentation related to job functions",
+      example:
+        " Ensures that procedures, guidelines, and documentation are current; contributing to organizational efficiency.",
+    },
+    3: {
+      title: " Problem Solving",
+      indicator:
+        " Applies critical thinking skills to solve problems efficiently",
+      example:
+        " Identifies and resolves issues in advance, effectively preventing potential disruptions.",
+    },
+  };
+
+  const QUALITY_OF_WORK = {
+    1: {
+      title: "Meets Standards and Requirements",
+      indicator:
+        "Ensures work is accurate and meets or exceeds established standards",
+      example:
+        "Complies with industry regulations and project specifications; delivers reliable, high-quality work, and accurate work.",
+    },
+    2: {
+      title: " Timeliness (L.E.A.D.E.R.)",
+      indicator: "Completes tasks and projects within specified deadlines",
+      example: "Submits work on time without compromising quality.",
+    },
+    3: {
+      title: "Work Output Volume (L.E.A.D.E.R.)",
+      indicator:
+        "Produces a high volume of quality work within a given time frame",
+      example: "Handles a substantial workload without sacrificing quality.",
+    },
+    4: {
+      title: "Consistency in Performance (L.E.A.D.E.R.)",
+      indicator: " Maintains a consistent level of productivity over time",
+      example:
+        "Meets productivity expectations reliably, without significant fluctuations.",
+    },
+    5: {
+      title: " Job Targets",
+      indicator:
+        " Achieves targets set for their respective position (Sales / CCR / Mechanic / etc.)",
+      example: "Consistently hits monthly targets assigned to their role.",
+    },
+  };
+
+  const ADAPTABILITY = {
+    1: {
+      title: "Openness to Change (attitude towards change)",
+      indicator:
+        " Demonstrates a positive attitude and openness to new ideas and major changes at work",
+      example:
+        " Welcomes changes in work processes, procedures, or tools without resistance. Maintains a cooperative attitude when asked to adjust to new ways of working.",
+    },
+    2: {
+      title: " Flexibility in Job Role (ability to adapt to changes)",
+      indicator:
+        "Adapts to changes in job responsibilities and willingly takes on new tasks",
+      example:
+        "Quickly adjusts to changes in job assignments, schedules, or unexpected demands. Helps cover additional responsibilities during staffing shortages or high workloads.",
+    },
+    3: {
+      title: "Resilience in the Face of Challenges",
+      indicator:
+        "Maintains a positive attitude and performance under challenging or difficult conditions",
+      example:
+        " Remains focused and effective during periods of high stress or uncertainty. Completes tasks or meets deadlines when faced with unforeseen obstacles.s",
+    },
+  };
+
+  const TEAMWORK = {
+    1: {
+      title: "Active Participation in Team Activities",
+      indicator: "Active Participation in Team Activities",
+      example:
+        "  Actively participates in team meetings and projects. Contributes ideas and feedback during discussions. Engages in team tasks to achieve group goals.",
+    },
+    2: {
+      title: "Promotion of a Positive Team Culture",
+      indicator: "Promotion of a Positive Team Culture",
+      example:
+        "  Interacts positively with coworkers. Fosters inclusive team culture. Provides support and constructive feedback. Promotes teamwork and camaraderie.",
+    },
+    3: {
+      title: "  Effective Communication",
+      indicator: "  Effective Communication",
+      example:
+        " Communicates openly and clearly with team members. Shares information and updates in a timely manner. Ensures important details are communicated clearly.",
+    },
+  };
+
+  const RELIABILITY = {
+    1: {
+      title: " Consistent Attendance",
+      indicator:
+        " Demonstrates regular attendance by being present at work as scheduled",
+      example:
+        " Has not taken any unplanned absences and follows the company's attendance policy.",
+    },
+    2: {
+      title: " Punctuality",
+      indicator:
+        "Arrives at work and meetings on time or before the scheduled time",
+      example:
+        "Consistently arrives at work on time, ready to begin work promptly.",
+    },
+    3: {
+      title: "Follows Through on Commitments",
+      indicator: "Follows Through on Commitments",
+      example:
+        " Follows through on assignments from and commitments made to coworkers or superiors",
+    },
+    4: {
+      title: "Reliable Handling of Routine Tasks",
+      indicator:
+        " Demonstrates reliability in completing routine tasks without oversight",
+      example:
+        "Delivers on commitments, ensuring that expectations are met or exceeded.",
+    },
+  };
+
+  const ETHICAL = {
+    1: {
+      title: " Follows Company Policies",
+      indicator: " Complies with company rules, regulations, and memorandums",
+      example:
+        "Follows established guidelines and protocols to ensure compliance with organizational standards.",
+    },
+    2: {
+      title: "Professionalism (L.E.A.D.E.R.)",
+      indicator:
+        "Maintains a high level of professionalism in all work interactions",
+      example:
+        "Represents the organization positively, addressing work needs with integrity and professionalism. Handles sensitive information with discretion.",
+    },
+    3: {
+      title: "Accountability for Mistakes (L.E.A.D.E.R.)",
+      indicator:
+        " Takes responsibility for errors and actively works to correct mistakes",
+      example:
+        "Acknowledges errors promptly, communicates about corrective actions, and learns from the experience. Takes ownership of mistakes and actively seeks ways to prevent future occurrences.",
+    },
+    4: {
+      title: "Respect for Others (L.E.A.D.E.R.)",
+      indicator:
+        " Treats all individuals fairly and with respect, regardless of background or position",
+      example:
+        "Demonstrates unbiased decision-making and avoids favoritism in interactions with team members. Treats all coworkers and suppliers respectfully, with dignity and fairness.",
+    },
+  };
+
+  const CUSTOMER_SERVICE = {
+    1: {
+      title: "Listening & Understanding",
+      indicator:
+        "Listens to customers and displays understanding of customer needs and concerns",
+      example:
+        "Repeats or summarizes customer concerns to ensure complete understanding before responding. Expresses genuine concern and seeks to understand the customer's perspective.",
+    },
+    2: {
+      title: "Problem-Solving for Customer Satisfaction",
+      indicator:
+        "Proactively identifies and solves customer problems to ensure satisfaction",
+      example:
+        "Takes initiative to resolve issues and prevent future challenges for the customer. Offers alternative solutions when standard resolutions are not enough.",
+    },
+    3: {
+      title: " Product Knowledge for Customer Support (L.E.A.D.E.R.)",
+      indicator:
+        " Possesses comprehensive product knowledge to assist customers effectively",
+      example:
+        "Demonstrates a deep understanding of products and/or services, enabling accurate and helpful guidance. Suggests the most suitable product or service based on customer requirements.",
+    },
+    4: {
+      title: "Positive and Professional Attitude (L.E.A.D.E.R.)",
+      indicator:
+        " Maintains a positive and professional demeanor, particularly during customer interactions",
+      example:
+        "Represents the organization positively. Remains courteous and patient, even with challenging customers or in stressful situations.",
+    },
+    5: {
+      title: "Timely Resolution of Customer Issues (L.E.A.D.E.R.)",
+      indicator: "Resolves customer issues promptly and efficiently",
+      example:
+        "Addresses and resolves customer complaints or concerns within established timeframes. Ensures follow-ups are conducted for unresolved issues until completion.",
+    },
+  };
 
   return (
-    <Dialog open={isOpen} onOpenChangeAction={onCloseAction}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto p-6 animate-popup">
-        <div className="space-y-8">
-          <div className="flex items-center justify-between border-b border-gray-200 pb-4">
-            <h2 className="text-3xl font-bold text-gray-900">Evaluation Details</h2>
+    <>
+      {/* Approval Loading/Success Dialog */}
+      <Dialog open={showApprovalDialog} onOpenChangeAction={() => {}}>
+        <DialogContent className="sm:max-w-md p-8">
+          <div className="flex flex-col items-center justify-center space-y-4">
+            {!showSuccessAnimation ? (
+              <>
+                <div className="relative">
+                  <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <img
+                      src="/smct.png"
+                      alt="SMCT Logo"
+                      className="h-8 w-8 object-contain"
+                    />
+                  </div>
+                </div>
+                <p className="text-lg font-medium text-gray-800">
+                  Approving evaluation...
+                </p>
+                <p className="text-sm text-gray-500 text-center">
+                  Please wait while we process your approval
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="relative">
+                  <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center animate-scale-in">
+                    <svg
+                      className="w-10 h-10 text-white"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={3}
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                  </div>
+                </div>
+                <p className="text-lg font-medium text-gray-800">
+                  Evaluation Approved!
+                </p>
+                <p className="text-sm text-gray-500 text-center">
+                  The evaluation has been successfully approved
+                </p>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isOpen} onOpenChangeAction={onCloseAction}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto p-6 animate-popup">
+          <style>{`
+            .screen-date {
+              display: inline;
+            }
+            .print-date {
+              display: none;
+            }
+            .screen-rating-badge {
+              display: inline;
+            }
+            .print-rating-text {
+              display: none;
+            }
+            .print-footer {
+              display: none;
+            }
+            @keyframes scale-in {
+              0% {
+                transform: scale(0);
+                opacity: 0;
+              }
+              50% {
+                transform: scale(1.1);
+              }
+              100% {
+                transform: scale(1);
+                opacity: 1;
+              }
+            }
+            .animate-scale-in {
+              animation: scale-in 0.5s ease-out;
+            }
+          `}</style>
+          {/* Sticky Print and Close Buttons - Stay at top when scrolling */}
+          <div className="sticky top-0 z-50 flex justify-end gap-2 mb-4 -mr-6 pr-6 py-4 no-print ">
             <Button
-              
-              onClick={onCloseAction}
-              className="px-4 py-2 bg-blue-500 text-white hover:bg-red-600 hover:text-white"
+              onClick={handlePrint}
+              className="px-4 py-2 bg-gray-600 text-white hover:bg-gray-700 flex items-center gap-2 cursor-pointer shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 transition-transform duration-200"
             >
-             🗙 Close
+              <Printer className="h-4 w-4" />
+              Print
+            </Button>
+            <Button
+              onClick={onCloseAction}
+              className="px-4 py-2 bg-red-500 text-white hover:bg-red-600 hover:text-white cursor-pointer shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 transition-transform duration-200"
+            >
+              🗙 Close
             </Button>
           </div>
 
-          <div className="space-y-8">
-            {/* Header Information */}
-            <Card className="shadow-md">
-              <CardHeader className="bg-gray-50 border-b border-gray-200">
-                <CardTitle className="text-xl font-semibold text-gray-900">Basic Information</CardTitle>
-              </CardHeader>
-              <CardContent className="p-6">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Employee Name</Label>
-                    <p className="text-lg font-semibold">{submission.employeeName}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Category</Label>
-                    <Badge className="bg-blue-100 text-blue-800">{submission.category || 'Performance Review'}</Badge>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Submitted Date</Label>
-                    <p className="text-lg">{new Date(submission.submittedAt).toLocaleDateString()}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Quarter</Label>
-                    <Badge className={getQuarterColor(getQuarterFromDate(submission.submittedAt))}>
-                      {getQuarterFromDate(submission.submittedAt)}
-                    </Badge>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Immediate Supervisor</Label>
-                    <p className="text-lg">{submission.evaluationData?.supervisor || 'Not specified'}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Overall Rating</Label>
-                    <p className="text-lg font-semibold">
-                      {submission.evaluationData ? (
-                        (() => {
-                          const jobKnowledgeScore = calculateScore([submission.evaluationData.jobKnowledgeScore1, submission.evaluationData.jobKnowledgeScore2, submission.evaluationData.jobKnowledgeScore3]);
-                          const qualityOfWorkScore = calculateScore([submission.evaluationData.qualityOfWorkScore1, submission.evaluationData.qualityOfWorkScore2, submission.evaluationData.qualityOfWorkScore3, submission.evaluationData.qualityOfWorkScore4, submission.evaluationData.qualityOfWorkScore5]);
-                          const adaptabilityScore = calculateScore([submission.evaluationData.adaptabilityScore1, submission.evaluationData.adaptabilityScore2, submission.evaluationData.adaptabilityScore3]);
-                          const teamworkScore = calculateScore([submission.evaluationData.teamworkScore1, submission.evaluationData.teamworkScore2, submission.evaluationData.teamworkScore3]);
-                          const reliabilityScore = calculateScore([submission.evaluationData.reliabilityScore1, submission.evaluationData.reliabilityScore2, submission.evaluationData.reliabilityScore3, submission.evaluationData.reliabilityScore4]);
-                          const ethicalScore = calculateScore([submission.evaluationData.ethicalScore1, submission.evaluationData.ethicalScore2, submission.evaluationData.ethicalScore3, submission.evaluationData.ethicalScore4]);
-                          const customerServiceScore = calculateScore([submission.evaluationData.customerServiceScore1, submission.evaluationData.customerServiceScore2, submission.evaluationData.customerServiceScore3, submission.evaluationData.customerServiceScore4, submission.evaluationData.customerServiceScore5]);
+          <div ref={printContentRef} className="space-y-8">
+            <div className="border-b border-gray-200 pb-4 no-print">
+              <h2 className="text-3xl font-bold text-gray-900">
+                Evaluation Details
+              </h2>
+            </div>
 
-                          const overallWeightedScore = (
-                            (jobKnowledgeScore * 0.20) +
-                            (qualityOfWorkScore * 0.20) +
-                            (adaptabilityScore * 0.10) +
-                            (teamworkScore * 0.10) +
-                            (reliabilityScore * 0.05) +
-                            (ethicalScore * 0.05) +
-                            (customerServiceScore * 0.30)
-                          );
+            <div className="space-y-8">
+              {/* Title */}
+              <div className="text-center mb-6">
+                <h1 className="text-2xl font-bold text-gray-900">
+                  {evaluationType === 'rankNfile' ? (
+                    <>
+                      Performance Review Form (HEAD OFFICE)
+                      <br />
+                      Rank and File I & II
+                    </>
+                  ) : evaluationType === 'basic' ? (
+                    <>
+                      Performance Review Form (HEAD OFFICE)
+                      <br />
+                      Basic
+                    </>
+                  ) : (
+                    <>
+                      Performance Review Form
+                    </>
+                  )}
+                </h1>
+              </div>
 
-                          return `${Math.round(overallWeightedScore * 10) / 10}/5`;
-                        })()
-                      ) : (
-                        `${submission.rating || 0}/5`
-                      )}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+              {/* Review Type Section */}
+              {submission && (
+                <Card className="shadow-md">
+                  <CardContent className="p-4">
+                    <div className="space-y-2 print-review-type">
+                      {/* Row 1: For Probationary */}
 
-
-            {/* Review Type Section */}
-            {submission.evaluationData && (
-              <Card className="shadow-md">
-                <CardHeader className="bg-gray-50 border-b border-gray-200">
-                  <CardTitle className="text-xl font-semibold text-gray-900">Review Type</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                            
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {/* For Probationary */}
-                    <div className="space-y-3">
-                      <h5 className="font-medium text-gray-800">For Probationary</h5>
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-4 h-4 rounded-full flex items-center justify-center ${submission.evaluationData.reviewTypeProbationary3 ? 'bg-green-500' : 'bg-gray-300'}`}>
-                            {submission.evaluationData.reviewTypeProbationary3 && (
+                      <div className="flex items-start gap-3">
+                        <h5 className="font-medium text-gray-800 min-w-[120px] text-sm">
+                          For Probationary
+                        </h5>
+                        <div className="flex flex-row gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <div
+                              className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                submission.reviewTypeProbationary === 3
+                                  ? "bg-green-500"
+                                  : "bg-gray-300"
+                              }`}
+                            >
                               <div className="w-2 h-2 bg-white rounded-full"></div>
-                            )}
-                          </div>
-                          <span className="text-sm text-gray-700">3 months</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-4 h-4 rounded-full flex items-center justify-center ${submission.evaluationData.reviewTypeProbationary5 ? 'bg-green-500' : 'bg-gray-300'}`}>
-                            {submission.evaluationData.reviewTypeProbationary5 && (
-                              <div className="w-2 h-2 bg-white rounded-full"></div>
-                            )}
-                          </div>
-                          <span className="text-sm text-gray-700">5 months</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* For Regular */}
-                    <div className="space-y-3">
-                      <h5 className="font-medium text-gray-800">For Regular</h5>
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-4 h-4 rounded-full flex items-center justify-center ${submission.evaluationData.reviewTypeRegularQ1 ? 'bg-green-500' : 'bg-gray-300'}`}>
-                            {submission.evaluationData.reviewTypeRegularQ1 && (
-                              <div className="w-2 h-2 bg-white rounded-full"></div>
-                            )}
-                          </div>
-                          <span className="text-sm text-gray-700">Q1 review</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-4 h-4 rounded-full flex items-center justify-center ${submission.evaluationData.reviewTypeRegularQ2 ? 'bg-green-500' : 'bg-gray-300'}`}>
-                            {submission.evaluationData.reviewTypeRegularQ2 && (
-                              <div className="w-2 h-2 bg-white rounded-full"></div>
-                            )}
-                          </div>
-                          <span className="text-sm text-gray-700">Q2 review</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-4 h-4 rounded-full flex items-center justify-center ${submission.evaluationData.reviewTypeRegularQ3 ? 'bg-green-500' : 'bg-gray-300'}`}>
-                            {submission.evaluationData.reviewTypeRegularQ3 && (
-                              <div className="w-2 h-2 bg-white rounded-full"></div>
-                            )}
-                          </div>
-                          <span className="text-sm text-gray-700">Q3 review</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-4 h-4 rounded-full flex items-center justify-center ${submission.evaluationData.reviewTypeRegularQ4 ? 'bg-green-500' : 'bg-gray-300'}`}>
-                            {submission.evaluationData.reviewTypeRegularQ4 && (
-                              <div className="w-2 h-2 bg-white rounded-full"></div>
-                            )}
-                          </div>
-                          <span className="text-sm text-gray-700">Q4 review</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Others */}
-                    <div className="space-y-3">
-                      <h5 className="font-medium text-gray-800">Others</h5>
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-4 h-4 rounded-full flex items-center justify-center ${submission.evaluationData.reviewTypeOthersImprovement ? 'bg-green-500' : 'bg-gray-300'}`}>
-                            {submission.evaluationData.reviewTypeOthersImprovement && (
-                              <div className="w-2 h-2 bg-white rounded-full"></div>
-                            )}
-                          </div>
-                          <span className="text-sm text-gray-700">Performance Improvement</span>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-4 h-4 rounded-full flex items-center justify-center ${submission.evaluationData.reviewTypeOthersCustom ? 'bg-green-500' : 'bg-gray-300'}`}>
-                              {submission.evaluationData.reviewTypeOthersCustom && (
-                                <div className="w-2 h-2 bg-white rounded-full"></div>
-                              )}
                             </div>
-                            <span className="text-sm text-gray-700">Others:</span>
+                            <span className="text-sm text-gray-700">
+                              3 months
+                            </span>
                           </div>
-                          {submission.evaluationData.reviewTypeOthersCustom && (
-                            <div className="ml-6 p-2 bg-gray-50 border border-gray-200 rounded text-sm text-gray-700">
-                              {submission.evaluationData.reviewTypeOthersCustom}
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                submission.reviewTypeProbationary === 5
+                                  ? "bg-green-500"
+                                  : "bg-gray-300"
+                              }`}
+                            >
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            </div>
+                            <span className="text-sm text-gray-700">
+                              5 months
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Row 2: For Regular */}
+                      <div className="flex items-start gap-3">
+                        <h5 className="font-medium text-gray-800 min-w-[120px] text-sm">
+                          For Regular
+                        </h5>
+                        <div className="flex flex-row gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <div
+                              className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                submission.reviewTypeRegular === "Q1"
+                                  ? "bg-green-500"
+                                  : "bg-gray-300"
+                              }`}
+                            >
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            </div>
+                            <span className="text-sm text-gray-700">
+                              Q1 review
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                submission.reviewTypeRegular === "Q2"
+                                  ? "bg-green-500"
+                                  : "bg-gray-300"
+                              }`}
+                            >
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            </div>
+                            <span className="text-sm text-gray-700">
+                              Q2 review
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                submission.reviewTypeRegular === "Q3"
+                                  ? "bg-green-500"
+                                  : "bg-gray-300"
+                              }`}
+                            >
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            </div>
+                            <span className="text-sm text-gray-700">
+                              Q3 review
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                submission.reviewTypeRegular === "Q4"
+                                  ? "bg-green-500"
+                                  : "bg-gray-300"
+                              }`}
+                            >
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            </div>
+                            <span className="text-sm text-gray-700">
+                              Q4 review
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Row 3: Others */}
+                      <div className="flex items-start gap-3">
+                        <h5 className="font-medium text-gray-800 min-w-[120px] text-sm">
+                          Others
+                        </h5>
+                        <div className="flex flex-row gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5">
+                            <div
+                              className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                submission.reviewTypeOthersImprovement
+                                  ? "bg-green-500"
+                                  : "bg-gray-300"
+                              }`}
+                            >
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            </div>
+                            <span className="text-sm text-gray-700">
+                              Performance Improvement
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                submission.reviewTypeOthersCustom
+                                  ? "bg-green-500"
+                                  : "bg-gray-300"
+                              }`}
+                            >
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            </div>
+                            <span className="text-sm text-gray-700">
+                              Others:
+                            </span>
+                          </div>
+                          {submission.reviewTypeOthersCustom && (
+                            <div className="ml-2 p-2 bg-gray-50 border border-gray-200 rounded text-sm text-gray-700">
+                              {submission.reviewTypeOthersCustom}
                             </div>
                           )}
                         </div>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+                  </CardContent>
+                </Card>
+              )}
 
-            {/* Step 1: Job Knowledge */}
-            {submission.evaluationData && (
+              {/* Header Information */}
               <Card className="shadow-md">
-                <CardHeader className="bg-blue-50 border-b border-blue-200">
-                  <CardTitle className="text-xl font-semibold text-blue-900">I. JOB KNOWLEDGE</CardTitle>
-                </CardHeader>
                 <CardContent className="p-6">
-                  <p className="text-sm text-gray-600 mb-4">
-                    Demonstrates understanding of job responsibilities. Applies knowledge to tasks and projects. Stays updated in relevant areas.
-                  </p>
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Behavioral Indicators</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Example</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">Score</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">Rating</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Comments</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Mastery in Core Competencies and Job Functions (L.E.A.D.E.R.)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Demonstrates comprehensive understanding of job requirements and applies knowledge effectively.</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.jobKnowledgeScore1 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.jobKnowledgeScore1 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.jobKnowledgeScore1 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.jobKnowledgeScore1 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.jobKnowledgeScore1 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.jobKnowledgeScore1 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.jobKnowledgeScore1 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.jobKnowledgeScore1 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.jobKnowledgeScore1 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.jobKnowledgeScore1 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.jobKnowledgeScore1 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.jobKnowledgeComments1 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Keeps Documentation Updated</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Maintains current and accurate documentation for projects and processes.</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.jobKnowledgeScore2 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.jobKnowledgeScore2 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.jobKnowledgeScore2 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.jobKnowledgeScore2 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.jobKnowledgeScore2 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.jobKnowledgeScore2 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.jobKnowledgeScore2 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.jobKnowledgeScore2 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.jobKnowledgeScore2 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.jobKnowledgeScore2 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.jobKnowledgeScore2 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.jobKnowledgeComments2 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Problem Solving</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Effectively identifies and resolves work-related challenges using job knowledge.</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.jobKnowledgeScore3 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.jobKnowledgeScore3 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.jobKnowledgeScore3 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.jobKnowledgeScore3 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.jobKnowledgeScore3 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.jobKnowledgeScore3 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.jobKnowledgeScore3 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.jobKnowledgeScore3 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.jobKnowledgeScore3 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.jobKnowledgeScore3 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.jobKnowledgeScore3 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.jobKnowledgeComments3 || ''}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-6 print-basic-info">
+                    <div className="print-info-row">
+                      <Label
+                        className="font-medium text-black block mb-1 print-label"
+                        style={{ fontSize: "11px" }}
+                      >
+                        Employee Name:
+                      </Label>
+                      <p
+                        className="font-semibold text-gray-900 print-value"
+                        style={{ fontSize: "11px" }}
+                      >
+                        {submission?.employee?.fname && submission?.employee?.lname
+                          ? `${submission.employee.fname} ${submission.employee.lname}`
+                          : "Unknown Employee"}
+                      </p>
+                    </div>
+                    <div className="print-info-row">
+                      <Label
+                        className="font-medium text-black block mb-1 print-label"
+                        style={{ fontSize: "11px" }}
+                      >
+                        Employee Contact #:
+                      </Label>
+                      <p
+                        className="text-gray-900 print-value"
+                        style={{ fontSize: "11px" }}
+                      >
+                        {submission?.employee?.contact ?? submission?.employee?.phone ?? "Not specified"}
+                      </p>
+                    </div>
+                    <div className="print-info-row">
+                      <Label
+                        className="font-medium text-black block mb-1 print-label"
+                        style={{ fontSize: "11px" }}
+                      >
+                        Position:
+                      </Label>
+                      <p
+                        className="text-gray-900 print-value"
+                        style={{ fontSize: "11px" }}
+                      >
+                        {submission?.employee?.positions?.label || "Not specified"}
+                      </p>
+                    </div>
+                    <div className="print-info-row">
+                      <Label
+                        className="font-medium text-black block mb-1 print-label"
+                        style={{ fontSize: "11px" }}
+                      >
+                        Branch:
+                      </Label>
+                      <p
+                        className="text-gray-900 print-value"
+                        style={{ fontSize: "11px" }}
+                      >
+                        {submission?.employee?.branches?.[0]?.branch_name || "Not specified"}
+                      </p>
+                    </div>
+                    <div className="print-info-row">
+                      <Label
+                        className="font-medium text-black block mb-1 print-label"
+                        style={{ fontSize: "11px" }}
+                      >
+                        Date Hired:
+                      </Label>
+                      <p
+                        className="text-gray-900 print-value"
+                        style={{ fontSize: "11px" }}
+                      >
+                        {(() => {
+                          const dateHired = submission?.employee?.date_hired || 
+                                           submission?.employee?.dateHired || 
+                                           submission?.employee?.hireDate ||
+                                           (submission as any)?.hireDate;
+                          if (!dateHired) return "Not specified";
+                          try {
+                            const date = new Date(dateHired);
+                            if (isNaN(date.getTime())) return "Not specified";
+                            return date.toLocaleDateString("en-US", {
+                              year: "numeric",
+                              month: "long",
+                              day: "numeric",
+                            });
+                          } catch {
+                            return "Not specified";
+                          }
+                        })()}
+                      </p>
+                    </div>
+                    <div className="print-info-row">
+                      <Label
+                        className="font-medium text-black block mb-1 print-label"
+                        style={{ fontSize: "11px" }}
+                      >
+                        Immediate Supervisor:
+                      </Label>
+                      <p
+                        className="text-gray-900 print-value"
+                        style={{ fontSize: "11px" }}
+                      >
+                        {submission.evaluator.fname +
+                          " " +
+                          submission.evaluator.lname}
+                      </p>
+                    </div>
+                    <div className="print-info-row">
+                      <Label
+                        className="font-medium text-black block mb-1 print-label"
+                        style={{ fontSize: "11px" }}
+                      >
+                        Performance Coverage:
+                      </Label>
+                      <p
+                        className="text-gray-900 print-value"
+                        style={{ fontSize: "11px" }}
+                      >
+                        {submission.coverageFrom && submission.coverageTo ? (
+                          <>
+                            <span className="screen-date">
+                              {`${new Date(
+                                submission.coverageFrom
+                              ).toLocaleDateString("en-US", {
+                                year: "numeric",
+                                month: "long",
+                                day: "numeric",
+                              })} - ${new Date(
+                                submission.coverageTo
+                              ).toLocaleDateString("en-US", {
+                                year: "numeric",
+                                month: "long",
+                                day: "numeric",
+                              })}`}
+                            </span>
+                            <span className="print-date">
+                              {`${new Date(
+                                submission.coverageFrom
+                              ).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })} - ${new Date(
+                                submission.coverageTo
+                              ).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })}`}
+                            </span>
+                          </>
+                        ) : (
+                          "Not specified"
+                        )}
+                      </p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
-            )}
 
-            {/* Step 2: Quality of Work */}
-            {submission.evaluationData && (
-              <Card className="shadow-md">
-                <CardHeader className="bg-green-50 border-b border-green-200">
-                  <CardTitle className="text-xl font-semibold text-green-900">II. QUALITY OF WORK</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <p className="text-sm text-gray-600 mb-4">
-                    Accuracy and precision in completing tasks. Attention to detail. Consistency in delivering high-quality results. Timely completion of tasks and projects. Effective use of resources. Ability to meet deadlines.
-                  </p>
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Behavioral Indicators</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Example</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">Score</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">Rating</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Comments</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Meets Standards and Requirements</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Consistently delivers work that meets or exceeds established standards and requirements.</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.qualityOfWorkScore1 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.qualityOfWorkScore1 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.qualityOfWorkScore1 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.qualityOfWorkScore1 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.qualityOfWorkScore1 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.qualityOfWorkScore1 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.qualityOfWorkScore1 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.qualityOfWorkScore1 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.qualityOfWorkScore1 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.qualityOfWorkScore1 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.qualityOfWorkScore1 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.qualityOfWorkComments1 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Timeliness (L.E.A.D.E.R.)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Completes tasks and projects within established deadlines and timeframes.</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.qualityOfWorkScore2 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.qualityOfWorkScore2 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.qualityOfWorkScore2 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.qualityOfWorkScore2 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.qualityOfWorkScore2 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.qualityOfWorkScore2 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.qualityOfWorkScore2 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.qualityOfWorkScore2 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.qualityOfWorkScore2 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.qualityOfWorkScore2 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.qualityOfWorkScore2 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.qualityOfWorkComments2 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Work Output Volume (L.E.A.D.E.R.)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Produces an appropriate volume of work output relative to role expectations.</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.qualityOfWorkScore3 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.qualityOfWorkScore3 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.qualityOfWorkScore3 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.qualityOfWorkScore3 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.qualityOfWorkScore3 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.qualityOfWorkScore3 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.qualityOfWorkScore3 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.qualityOfWorkScore3 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.qualityOfWorkScore3 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.qualityOfWorkScore3 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.qualityOfWorkScore3 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.qualityOfWorkComments3 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Consistency in Performance (L.E.A.D.E.R.)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Maintains consistent quality and performance standards across all tasks and projects.</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.qualityOfWorkScore4 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.qualityOfWorkScore4 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.qualityOfWorkScore4 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.qualityOfWorkScore4 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.qualityOfWorkScore4 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.qualityOfWorkScore4 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.qualityOfWorkScore4 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.qualityOfWorkScore4 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.qualityOfWorkScore4 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.qualityOfWorkScore4 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.qualityOfWorkScore4 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.qualityOfWorkComments4 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Attention to Detail</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Demonstrates thoroughness and accuracy in work, catching and correcting errors.</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.qualityOfWorkScore5 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.qualityOfWorkScore5 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.qualityOfWorkScore5 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.qualityOfWorkScore5 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.qualityOfWorkScore5 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.qualityOfWorkScore5 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.qualityOfWorkScore5 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.qualityOfWorkScore5 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.qualityOfWorkScore5 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.qualityOfWorkScore5 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.qualityOfWorkScore5 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.qualityOfWorkComments5 || ''}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Step 3: Adaptability */}
-            {submission.evaluationData && (
-              <Card className="shadow-md">
-                <CardHeader className="bg-yellow-50 border-b border-yellow-200">
-                  <CardTitle className="text-xl font-semibold text-yellow-900">III. ADAPTABILITY</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <p className="text-sm text-gray-600 mb-4">
-                    Flexibility in handling change. Ability to work effectively in diverse situations. Resilience in the face of challenges.
-                  </p>
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Behavioral Indicators</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Example</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">Score</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">Rating</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Comments</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Openness to Change (attitude towards change)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Demonstrates a positive attitude and openness to new ideas and major changes at work</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.adaptabilityScore1 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.adaptabilityScore1 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.adaptabilityScore1 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.adaptabilityScore1 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.adaptabilityScore1 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.adaptabilityScore1 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.adaptabilityScore1 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.adaptabilityScore1 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.adaptabilityScore1 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.adaptabilityScore1 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.adaptabilityScore1 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.adaptabilityComments1 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Flexibility in Job Role (ability to adapt to changes)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Adapts to changes in job responsibilities and willingly takes on new tasks</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.adaptabilityScore2 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.adaptabilityScore2 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.adaptabilityScore2 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.adaptabilityScore2 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.adaptabilityScore2 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.adaptabilityScore2 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.adaptabilityScore2 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.adaptabilityScore2 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.adaptabilityScore2 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.adaptabilityScore2 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.adaptabilityScore2 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.adaptabilityComments2 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Resilience in the Face of Challenges</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Maintains a positive attitude and performance under challenging or difficult conditions</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.adaptabilityScore3 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.adaptabilityScore3 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.adaptabilityScore3 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.adaptabilityScore3 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.adaptabilityScore3 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.adaptabilityScore3 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.adaptabilityScore3 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.adaptabilityScore3 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.adaptabilityScore3 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.adaptabilityScore3 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.adaptabilityScore3 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.adaptabilityComments3 || ''}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Step 4: Teamwork */}
-            {submission.evaluationData && (
-              <Card className="shadow-md">
-                <CardHeader className="bg-purple-50 border-b border-purple-200">
-                  <CardTitle className="text-xl font-semibold text-purple-900">IV. TEAMWORK</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <p className="text-sm text-gray-600 mb-4">
-                    Ability to work well with others. Contribution to team goals and projects. Supportiveness of team members.
-                  </p>
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Behavioral Indicators</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Example</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">Score</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">Rating</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Comments</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Active Participation in Team Activities</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Actively participates in team meetings and projects. Contributes ideas and feedback during discussions. Engages in team tasks to achieve group goals.</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.teamworkScore1 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.teamworkScore1 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.teamworkScore1 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.teamworkScore1 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.teamworkScore1 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.teamworkScore1 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.teamworkScore1 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.teamworkScore1 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.teamworkScore1 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.teamworkScore1 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.teamworkScore1 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.teamworkComments1 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Promotion of a Positive Team Culture</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Interacts positively with coworkers. Fosters inclusive team culture. Provides support and constructive feedback. Promotes teamwork and camaraderie.</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.teamworkScore2 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.teamworkScore2 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.teamworkScore2 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.teamworkScore2 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.teamworkScore2 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.teamworkScore2 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.teamworkScore2 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.teamworkScore2 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.teamworkScore2 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.teamworkScore2 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.teamworkScore2 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.teamworkComments2 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Effective Communication</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Communicates openly and clearly with team members. Shares information and updates in a timely manner. Ensures important details are communicated clearly.</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.teamworkScore3 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.teamworkScore3 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.teamworkScore3 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.teamworkScore3 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.teamworkScore3 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.teamworkScore3 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.teamworkScore3 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.teamworkScore3 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.teamworkScore3 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.teamworkScore3 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.teamworkScore3 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.teamworkComments3 || ''}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Step 5: Reliability */}
-            {submission.evaluationData && (
-              <Card className="shadow-md">
-                <CardHeader className="bg-indigo-50 border-b border-indigo-200">
-                  <CardTitle className="text-xl font-semibold text-indigo-900">V. RELIABILITY</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <p className="text-sm text-gray-600 mb-4">
-                    Consistency in attendance and punctuality. Meeting commitments and fulfilling responsibilities.
-                  </p>
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Behavioral Indicators</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Example</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">Score</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">Rating</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Comments</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Consistent Attendance</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Demonstrates regular attendance by being present at work as scheduled</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.reliabilityScore1 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.reliabilityScore1 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.reliabilityScore1 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.reliabilityScore1 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.reliabilityScore1 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.reliabilityScore1 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.reliabilityScore1 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.reliabilityScore1 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.reliabilityScore1 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.reliabilityScore1 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.reliabilityScore1 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.reliabilityComments1 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Punctuality</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Arrives at work and meetings on time or before the scheduled time</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.reliabilityScore2 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.reliabilityScore2 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.reliabilityScore2 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.reliabilityScore2 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.reliabilityScore2 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.reliabilityScore2 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.reliabilityScore2 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.reliabilityScore2 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.reliabilityScore2 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.reliabilityScore2 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.reliabilityScore2 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.reliabilityComments2 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Follows Through on Commitments</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Follows through on assignments from and commitments made to coworkers or superiors</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.reliabilityScore3 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.reliabilityScore3 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.reliabilityScore3 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.reliabilityScore3 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.reliabilityScore3 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.reliabilityScore3 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.reliabilityScore3 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.reliabilityScore3 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.reliabilityScore3 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.reliabilityScore3 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.reliabilityScore3 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.reliabilityComments3 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Reliable Handling of Routine Tasks</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Demonstrates reliability in completing routine tasks without oversight</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.reliabilityScore4 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.reliabilityScore4 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.reliabilityScore4 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.reliabilityScore4 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.reliabilityScore4 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.reliabilityScore4 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.reliabilityScore4 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.reliabilityScore4 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.reliabilityScore4 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.reliabilityScore4 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.reliabilityScore4 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.reliabilityComments4 || ''}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Step 6: Ethical & Professional Behavior */}
-            {submission.evaluationData && (
-              <Card className="shadow-md">
-                <CardHeader className="bg-red-50 border-b border-red-200">
-                  <CardTitle className="text-xl font-semibold text-red-900">VI. ETHICAL & PROFESSIONAL BEHAVIOR</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <p className="text-sm text-gray-600 mb-4">
-                    Complies with company policies and ethical standards. Accountability for one's actions. Professionalism in interactions with coworkers and clients.
-                  </p>
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Behavioral Indicators</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Example</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">Score</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">Rating</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Comments</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Follows Company Policies</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Complies with company rules, regulations, and memorandums</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.ethicalScore1 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.ethicalScore1 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.ethicalScore1 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.ethicalScore1 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.ethicalScore1 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.ethicalScore1 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.ethicalScore1 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.ethicalScore1 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.ethicalScore1 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.ethicalScore1 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.ethicalScore1 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.ethicalExplanation1 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Professionalism (L.E.A.D.E.R.)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Maintains a high level of professionalism in all work interactions</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.ethicalScore2 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.ethicalScore2 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.ethicalScore2 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.ethicalScore2 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.ethicalScore2 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.ethicalScore2 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.ethicalScore2 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.ethicalScore2 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.ethicalScore2 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.ethicalScore2 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.ethicalScore2 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.ethicalExplanation2 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Accountability for Mistakes (L.E.A.D.E.R.)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Takes responsibility for errors and actively works to correct mistakes</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.ethicalScore3 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.ethicalScore3 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.ethicalScore3 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.ethicalScore3 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.ethicalScore3 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.ethicalScore3 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.ethicalScore3 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.ethicalScore3 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.ethicalScore3 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.ethicalScore3 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.ethicalScore3 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.ethicalExplanation3 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Respect for Others (L.E.A.D.E.R.)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Treats all individuals fairly and with respect, regardless of background or position</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.ethicalScore4 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.ethicalScore4 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.ethicalScore4 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.ethicalScore4 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.ethicalScore4 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.ethicalScore4 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.ethicalScore4 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.ethicalScore4 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.ethicalScore4 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.ethicalScore4 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.ethicalScore4 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.ethicalExplanation4 || ''}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Step 7: Customer Service */}
-            {submission.evaluationData && (
-              <Card className="shadow-md">
-                <CardHeader className="bg-teal-50 border-b border-teal-200">
-                  <CardTitle className="text-xl font-semibold text-teal-900">VII. CUSTOMER SERVICE</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <p className="text-sm text-gray-600 mb-4">
-                    Customer satisfaction. Responsiveness to customer needs. Professional and positive interactions with customers.
-                  </p>
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Behavioral Indicators</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Example</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">Score</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">Rating</th>
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Comments</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Listening & Understanding</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Listens to customers and displays understanding of customer needs and concerns</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.customerServiceScore1 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.customerServiceScore1 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.customerServiceScore1 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.customerServiceScore1 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.customerServiceScore1 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.customerServiceScore1 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.customerServiceScore1 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.customerServiceScore1 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.customerServiceScore1 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.customerServiceScore1 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.customerServiceScore1 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.customerServiceExplanation1 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Problem-Solving for Customer Satisfaction</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Proactively identifies and solves customer problems to ensure satisfaction</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.customerServiceScore2 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.customerServiceScore2 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.customerServiceScore2 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.customerServiceScore2 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.customerServiceScore2 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.customerServiceScore2 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.customerServiceScore2 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.customerServiceScore2 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.customerServiceScore2 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.customerServiceScore2 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.customerServiceScore2 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.customerServiceExplanation2 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Product Knowledge for Customer Support (L.E.A.D.E.R.)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Possesses comprehensive product knowledge to assist customers effectively</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.customerServiceScore3 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.customerServiceScore3 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.customerServiceScore3 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.customerServiceScore3 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.customerServiceScore3 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.customerServiceScore3 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.customerServiceScore3 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.customerServiceScore3 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.customerServiceScore3 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.customerServiceScore3 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.customerServiceScore3 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.customerServiceExplanation3 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Positive and Professional Attitude (L.E.A.D.E.R.)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Maintains a positive and professional demeanor, particularly during customer interactions</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.customerServiceScore4 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.customerServiceScore4 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.customerServiceScore4 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.customerServiceScore4 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.customerServiceScore4 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.customerServiceScore4 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.customerServiceScore4 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.customerServiceScore4 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.customerServiceScore4 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.customerServiceScore4 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.customerServiceScore4 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.customerServiceExplanation4 || ''}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Timely Resolution of Customer Issues (L.E.A.D.E.R.)</td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">Resolves customer issues promptly and efficiently</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center font-medium">{submission.evaluationData.customerServiceScore5 || ''}</td>
-                          <td className="border border-gray-300 px-4 py-3 text-center">
-                            <div className={`px-2 py-1 rounded text-sm font-medium ${
-                              submission.evaluationData.customerServiceScore5 === '5' ? 'bg-green-100 text-green-800' : 
-                              submission.evaluationData.customerServiceScore5 === '4' ? 'bg-blue-100 text-blue-800' :
-                              submission.evaluationData.customerServiceScore5 === '3' ? 'bg-yellow-100 text-yellow-800' :
-                              submission.evaluationData.customerServiceScore5 === '2' ? 'bg-orange-100 text-orange-800' :
-                              submission.evaluationData.customerServiceScore5 === '1' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {submission.evaluationData.customerServiceScore5 === '5' ? 'Outstanding' : 
-                               submission.evaluationData.customerServiceScore5 === '4' ? 'Exceeds Expectation' :
-                               submission.evaluationData.customerServiceScore5 === '3' ? 'Meets Expectations' :
-                               submission.evaluationData.customerServiceScore5 === '2' ? 'Needs Improvement' :
-                               submission.evaluationData.customerServiceScore5 === '1' ? 'Unsatisfactory' : 'Not Rated'}
-                            </div>
-                          </td>
-                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">{submission.evaluationData.customerServiceExplanation5 || ''}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-            
-            {/* Performance Assessment Table */}
-            {submission.evaluationData && (
-              <Card className="shadow-md">
-                <CardHeader className="bg-gray-50 border-b border-gray-200">
-                  <CardTitle className="text-xl font-semibold text-gray-900">Performance Assessment Summary</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <div className="space-y-6">
+              {/* Step 1: Job Knowledge */}
+              {submission && (
+                <Card className="shadow-md hide-in-print">
+                  <CardHeader className="bg-blue-50 border-b border-blue-200">
+                    <CardTitle className="text-xl font-semibold text-blue-900">
+                      I. JOB KNOWLEDGE
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Demonstrates understanding of job responsibilities.
+                      Applies knowledge to tasks and projects. Stays updated in
+                      relevant areas.
+                    </p>
                     <div className="overflow-x-auto">
-                      <table className="w-full border-collapse border-2 border-gray-400">
+                      <table className="w-full border-collapse border border-gray-300">
                         <thead>
-                          <tr className="bg-gray-200">
-                            <th className="border-2 border-gray-400 px-4 py-3 text-left font-bold text-gray-900 text-base">
-                              Performance Criteria
+                          <tr className="bg-gray-100">
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900"></th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Behavioral Indicators
                             </th>
-                            <th className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-gray-900 text-base w-32">
-                              Rating
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Example
                             </th>
-                            <th className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-gray-900 text-base w-24">
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">
                               Score
                             </th>
-                            <th className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-gray-900 text-base w-24">
-                              Weight (%)
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">
+                              Rating
                             </th>
-                            <th className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-gray-900 text-base w-32">
-                              Weighted Score
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Comments
                             </th>
                           </tr>
                         </thead>
                         <tbody>
-                          {/* Job Knowledge */}
-                          <tr>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
-                              Job Knowledge
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center">
-                              <div className="flex items-center justify-center space-x-1">
-                                <span className={`px-2 py-1 rounded text-sm font-bold ${getRatingColorForLabel(getRatingLabel(calculateScore([submission.evaluationData.jobKnowledgeScore1, submission.evaluationData.jobKnowledgeScore2, submission.evaluationData.jobKnowledgeScore3])))}`}>
-                                  {getRatingLabel(calculateScore([submission.evaluationData.jobKnowledgeScore1, submission.evaluationData.jobKnowledgeScore2, submission.evaluationData.jobKnowledgeScore3]))}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {Math.round(calculateScore([submission.evaluationData.jobKnowledgeScore1, submission.evaluationData.jobKnowledgeScore2, submission.evaluationData.jobKnowledgeScore3]) * 10) / 10}
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              20%
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {Math.round(calculateScore([submission.evaluationData.jobKnowledgeScore1, submission.evaluationData.jobKnowledgeScore2, submission.evaluationData.jobKnowledgeScore3]) * 0.20 * 10) / 10}
-                            </td>
-                          </tr>
+                          {(submission.job_knowledge || []).map(
+                            (item: {
+                              question_number: 1 | 2 | 3;
+                              score: number;
+                              comment: string;
+                            }) => {
+                              const indicators =
+                                JOB_KNOWLEDGE[item.question_number];
 
-                          {/* Quality of Work */}
-                          <tr>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
-                              Quality of Work
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center">
-                              <div className="flex items-center justify-center space-x-1">
-                                <span className={`px-2 py-1 rounded text-sm font-bold ${getRatingColorForLabel(getRatingLabel(calculateScore([submission.evaluationData.qualityOfWorkScore1, submission.evaluationData.qualityOfWorkScore2, submission.evaluationData.qualityOfWorkScore3, submission.evaluationData.qualityOfWorkScore4, submission.evaluationData.qualityOfWorkScore5])))}`}>
-                                  {getRatingLabel(calculateScore([submission.evaluationData.qualityOfWorkScore1, submission.evaluationData.qualityOfWorkScore2, submission.evaluationData.qualityOfWorkScore3, submission.evaluationData.qualityOfWorkScore4, submission.evaluationData.qualityOfWorkScore5]))}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {calculateScore([submission.evaluationData.qualityOfWorkScore1, submission.evaluationData.qualityOfWorkScore2, submission.evaluationData.qualityOfWorkScore3, submission.evaluationData.qualityOfWorkScore4, submission.evaluationData.qualityOfWorkScore5]).toFixed(2)}
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              20%
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {(calculateScore([submission.evaluationData.qualityOfWorkScore1, submission.evaluationData.qualityOfWorkScore2, submission.evaluationData.qualityOfWorkScore3, submission.evaluationData.qualityOfWorkScore4, submission.evaluationData.qualityOfWorkScore5]) * 0.20).toFixed(2)}
-                            </td>
-                          </tr>
-
-                          {/* Adaptability */}
-                          <tr>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
-                              Adaptability
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center">
-                              <div className="flex items-center justify-center space-x-1">
-                                <span className={`px-2 py-1 rounded text-sm font-bold ${getRatingColorForLabel(getRatingLabel(calculateScore([submission.evaluationData.adaptabilityScore1, submission.evaluationData.adaptabilityScore2, submission.evaluationData.adaptabilityScore3])))}`}>
-                                  {getRatingLabel(calculateScore([submission.evaluationData.adaptabilityScore1, submission.evaluationData.adaptabilityScore2, submission.evaluationData.adaptabilityScore3]))}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {calculateScore([submission.evaluationData.adaptabilityScore1, submission.evaluationData.adaptabilityScore2, submission.evaluationData.adaptabilityScore3]).toFixed(2)}
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              10%
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {(calculateScore([submission.evaluationData.adaptabilityScore1, submission.evaluationData.adaptabilityScore2, submission.evaluationData.adaptabilityScore3]) * 0.10).toFixed(2)}
-                            </td>
-                          </tr>
-
-                          {/* Teamwork */}
-                          <tr>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
-                              Teamwork
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center">
-                              <div className="flex items-center justify-center space-x-1">
-                                <span className={`px-2 py-1 rounded text-sm font-bold ${getRatingColorForLabel(getRatingLabel(calculateScore([submission.evaluationData.teamworkScore1, submission.evaluationData.teamworkScore2, submission.evaluationData.teamworkScore3])))}`}>
-                                  {getRatingLabel(calculateScore([submission.evaluationData.teamworkScore1, submission.evaluationData.teamworkScore2, submission.evaluationData.teamworkScore3]))}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {calculateScore([submission.evaluationData.teamworkScore1, submission.evaluationData.teamworkScore2, submission.evaluationData.teamworkScore3]).toFixed(2)}
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              10%
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {(calculateScore([submission.evaluationData.teamworkScore1, submission.evaluationData.teamworkScore2, submission.evaluationData.teamworkScore3]) * 0.10).toFixed(2)}
-                            </td>
-                          </tr>
-
-                          {/* Reliability */}
-                          <tr>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
-                              Reliability
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center">
-                              <div className="flex items-center justify-center space-x-1">
-                                <span className={`px-2 py-1 rounded text-sm font-bold ${getRatingColorForLabel(getRatingLabel(calculateScore([submission.evaluationData.reliabilityScore1, submission.evaluationData.reliabilityScore2, submission.evaluationData.reliabilityScore3, submission.evaluationData.reliabilityScore4])))}`}>
-                                  {getRatingLabel(calculateScore([submission.evaluationData.reliabilityScore1, submission.evaluationData.reliabilityScore2, submission.evaluationData.reliabilityScore3, submission.evaluationData.reliabilityScore4]))}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {calculateScore([submission.evaluationData.reliabilityScore1, submission.evaluationData.reliabilityScore2, submission.evaluationData.reliabilityScore3, submission.evaluationData.reliabilityScore4]).toFixed(2)}
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              5%
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {(calculateScore([submission.evaluationData.reliabilityScore1, submission.evaluationData.reliabilityScore2, submission.evaluationData.reliabilityScore3, submission.evaluationData.reliabilityScore4]) * 0.05).toFixed(2)}
-                            </td>
-                          </tr>
-
-                          {/* Ethical & Professional Behavior */}
-                          <tr>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
-                              Ethical & Professional Behavior
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center">
-                              <div className="flex items-center justify-center space-x-1">
-                                <span className={`px-2 py-1 rounded text-sm font-bold ${getRatingColorForLabel(getRatingLabel(calculateScore([submission.evaluationData.ethicalScore1, submission.evaluationData.ethicalScore2, submission.evaluationData.ethicalScore3, submission.evaluationData.ethicalScore4])))}`}>
-                                  {getRatingLabel(calculateScore([submission.evaluationData.ethicalScore1, submission.evaluationData.ethicalScore2, submission.evaluationData.ethicalScore3, submission.evaluationData.ethicalScore4]))}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {calculateScore([submission.evaluationData.ethicalScore1, submission.evaluationData.ethicalScore2, submission.evaluationData.ethicalScore3, submission.evaluationData.ethicalScore4]).toFixed(2)}
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              5%
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {(calculateScore([submission.evaluationData.ethicalScore1, submission.evaluationData.ethicalScore2, submission.evaluationData.ethicalScore3, submission.evaluationData.ethicalScore4]) * 0.05).toFixed(2)}
-                            </td>
-                          </tr>
-
-                          {/* Customer Service */}
-                          <tr>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
-                              Customer Service
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center">
-                              <div className="flex items-center justify-center space-x-1">
-                                <span className={`px-2 py-1 rounded text-sm font-bold ${getRatingColorForLabel(getRatingLabel(calculateScore([submission.evaluationData.customerServiceScore1, submission.evaluationData.customerServiceScore2, submission.evaluationData.customerServiceScore3, submission.evaluationData.customerServiceScore4, submission.evaluationData.customerServiceScore5])))}`}>
-                                  {getRatingLabel(calculateScore([submission.evaluationData.customerServiceScore1, submission.evaluationData.customerServiceScore2, submission.evaluationData.customerServiceScore3, submission.evaluationData.customerServiceScore4, submission.evaluationData.customerServiceScore5]))}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {calculateScore([submission.evaluationData.customerServiceScore1, submission.evaluationData.customerServiceScore2, submission.evaluationData.customerServiceScore3, submission.evaluationData.customerServiceScore4, submission.evaluationData.customerServiceScore5]).toFixed(2)}
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              30%
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
-                              {(calculateScore([submission.evaluationData.customerServiceScore1, submission.evaluationData.customerServiceScore2, submission.evaluationData.customerServiceScore3, submission.evaluationData.customerServiceScore4, submission.evaluationData.customerServiceScore5]) * 0.30).toFixed(2)}
-                            </td>
-                          </tr>
-
-                          {/* Overall Performance Rating */}
-                          <tr className="bg-gray-100">
-                            <td colSpan={4} className="border-2 border-gray-400 px-4 py-3 text-sm font-bold text-gray-700">
-                              Overall Performance Rating
-                            </td>
-                            <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-lg">
-                              {(() => {
-                                const jobKnowledgeScore = calculateScore([submission.evaluationData.jobKnowledgeScore1, submission.evaluationData.jobKnowledgeScore2, submission.evaluationData.jobKnowledgeScore3]);
-                                const qualityOfWorkScore = calculateScore([submission.evaluationData.qualityOfWorkScore1, submission.evaluationData.qualityOfWorkScore2, submission.evaluationData.qualityOfWorkScore3, submission.evaluationData.qualityOfWorkScore4, submission.evaluationData.qualityOfWorkScore5]);
-                                const adaptabilityScore = calculateScore([submission.evaluationData.adaptabilityScore1, submission.evaluationData.adaptabilityScore2, submission.evaluationData.adaptabilityScore3]);
-                                const teamworkScore = calculateScore([submission.evaluationData.teamworkScore1, submission.evaluationData.teamworkScore2, submission.evaluationData.teamworkScore3]);
-                                const reliabilityScore = calculateScore([submission.evaluationData.reliabilityScore1, submission.evaluationData.reliabilityScore2, submission.evaluationData.reliabilityScore3, submission.evaluationData.reliabilityScore4]);
-                                const ethicalScore = calculateScore([submission.evaluationData.ethicalScore1, submission.evaluationData.ethicalScore2, submission.evaluationData.ethicalScore3, submission.evaluationData.ethicalScore4]);
-                                const customerServiceScore = calculateScore([submission.evaluationData.customerServiceScore1, submission.evaluationData.customerServiceScore2, submission.evaluationData.customerServiceScore3, submission.evaluationData.customerServiceScore4, submission.evaluationData.customerServiceScore5]);
-
-                                const overallWeightedScore = (
-                                  (jobKnowledgeScore * 0.20) +
-                                  (qualityOfWorkScore * 0.20) +
-                                  (adaptabilityScore * 0.10) +
-                                  (teamworkScore * 0.10) +
-                                  (reliabilityScore * 0.05) +
-                                  (ethicalScore * 0.05) +
-                                  (customerServiceScore * 0.30)
-                                ).toFixed(2);
-
-                                return overallWeightedScore;
-                              })()}
-                            </td>
-                          </tr>
+                              return (
+                                <tr key={item.question_number}>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.title}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.indicator}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.example}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center font-medium">
+                                    {item.score}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center">
+                                    <div
+                                      className={`px-2 py-1 rounded text-sm font-medium ${ratingBG(
+                                        item.score
+                                      )}`}
+                                    >
+                                      {rating(item.score)}
+                                    </div>
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">
+                                    {item.comment || ""}
+                                  </td>
+                                </tr>
+                              );
+                            }
+                          )}
                         </tbody>
                       </table>
                     </div>
+                  </CardContent>
+                </Card>
+              )}
 
-                    {/* Final Results */}
-                    <div className="mt-6 flex justify-center items-center space-x-8">
-                      <div className="text-center">
-                        <div className="text-4xl font-bold text-gray-700">
-                          {(() => {
-                            const jobKnowledgeScore = calculateScore([submission.evaluationData.jobKnowledgeScore1, submission.evaluationData.jobKnowledgeScore2, submission.evaluationData.jobKnowledgeScore3]);
-                            const qualityOfWorkScore = calculateScore([submission.evaluationData.qualityOfWorkScore1, submission.evaluationData.qualityOfWorkScore2, submission.evaluationData.qualityOfWorkScore3, submission.evaluationData.qualityOfWorkScore4, submission.evaluationData.qualityOfWorkScore5]);
-                            const adaptabilityScore = calculateScore([submission.evaluationData.adaptabilityScore1, submission.evaluationData.adaptabilityScore2, submission.evaluationData.adaptabilityScore3]);
-                            const teamworkScore = calculateScore([submission.evaluationData.teamworkScore1, submission.evaluationData.teamworkScore2, submission.evaluationData.teamworkScore3]);
-                            const reliabilityScore = calculateScore([submission.evaluationData.reliabilityScore1, submission.evaluationData.reliabilityScore2, submission.evaluationData.reliabilityScore3, submission.evaluationData.reliabilityScore4]);
-                            const ethicalScore = calculateScore([submission.evaluationData.ethicalScore1, submission.evaluationData.ethicalScore2, submission.evaluationData.ethicalScore3, submission.evaluationData.ethicalScore4]);
-                            const customerServiceScore = calculateScore([submission.evaluationData.customerServiceScore1, submission.evaluationData.customerServiceScore2, submission.evaluationData.customerServiceScore3, submission.evaluationData.customerServiceScore4, submission.evaluationData.customerServiceScore5]);
+              {/* Step 2: Quality of Work */}
+              {submission.quality_of_works && (
+                <Card className="shadow-md hide-in-print">
+                  <CardHeader className="bg-green-50 border-b border-green-200">
+                    <CardTitle className="text-xl font-semibold text-green-900">
+                      II. QUALITY OF WORK
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Accuracy and precision in completing tasks. Attention to
+                      detail. Consistency in delivering high-quality results.
+                      Timely completion of tasks and projects. Effective use of
+                      resources. Ability to meet deadlines.
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900"></th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Behavioral Indicators
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Example
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">
+                              Score
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">
+                              Rating
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Comments
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(submission.quality_of_works || [])
+                            .filter((item: { question_number: number }) => {
+                              // For branch employees: only show questions 1-5 (up to Job Targets)
+                              // For HO employees: only show questions 1-4 (no Job Targets)
+                              // Questions 6-11 are not shown for branch employees
+                              if (isBranchEmp) {
+                                // Branch employees: show only questions 1-5
+                                return item.question_number <= 5;
+                              } else {
+                                // HO employees: show only questions 1-4 (no Job Targets)
+                                return item.question_number <= 4;
+                              }
+                            })
+                            .map(
+                            (item: {
+                              question_number: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+                              score: number;
+                              comment: string;
+                            }) => {
+                              const indicators =
+                                QUALITY_OF_WORK[item.question_number as keyof typeof QUALITY_OF_WORK];
 
-                            const overallWeightedScore = (
-                              (jobKnowledgeScore * 0.20) +
-                              (qualityOfWorkScore * 0.20) +
-                              (adaptabilityScore * 0.10) +
-                              (teamworkScore * 0.10) +
-                              (reliabilityScore * 0.05) +
-                              (ethicalScore * 0.05) +
-                              (customerServiceScore * 0.30)
-                            );
+                              // Safety check: if indicators don't exist, use fallback
+                              if (!indicators) {
+                                return (
+                                  <tr key={item.question_number}>
+                                    <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                      Quality of Work #{item.question_number}
+                                    </td>
+                                    <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                      Branch Manager Evaluation Criteria
+                                    </td>
+                                    <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                      N/A
+                                    </td>
+                                    <td className="border border-gray-300 px-4 py-3 text-center font-medium">
+                                      {item.score}
+                                    </td>
+                                    <td className="border border-gray-300 px-4 py-3 text-center">
+                                      <div
+                                        className={`px-2 py-1 rounded-md text-sm font-bold ${
+                                          item.score === 5
+                                            ? "bg-green-100 text-green-800"
+                                            : item.score === 4
+                                            ? "bg-blue-100 text-blue-800"
+                                            : item.score === 3
+                                            ? "bg-yellow-100 text-yellow-800"
+                                            : item.score === 2
+                                            ? "bg-orange-100 text-orange-800"
+                                            : item.score === 1
+                                            ? "bg-red-100 text-red-800"
+                                            : "bg-gray-100 text-gray-500"
+                                        }`}
+                                      >
+                                        {item.score === 5
+                                          ? "Outstanding"
+                                          : item.score === 4
+                                          ? "Exceeds Expectation"
+                                          : item.score === 3
+                                          ? "Meets Expectations"
+                                          : item.score === 2
+                                          ? "Needs Improvement"
+                                          : item.score === 1
+                                          ? "Unsatisfactory"
+                                          : "Not Rated"}
+                                      </div>
+                                    </td>
+                                    <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                      {item.comment || "No comment"}
+                                    </td>
+                                  </tr>
+                                );
+                              }
 
-                            return (overallWeightedScore / 5 * 100).toFixed(2);
-                          })()}%
-                        </div>
-                        <div className="text-base text-gray-500 mt-1">Performance Score</div>
-                      </div>
-                      <div className={`px-8 py-4 rounded-lg font-bold text-white text-xl ${(() => {
-                        const jobKnowledgeScore = calculateScore([submission.evaluationData.jobKnowledgeScore1, submission.evaluationData.jobKnowledgeScore2, submission.evaluationData.jobKnowledgeScore3]);
-                        const qualityOfWorkScore = calculateScore([submission.evaluationData.qualityOfWorkScore1, submission.evaluationData.qualityOfWorkScore2, submission.evaluationData.qualityOfWorkScore3, submission.evaluationData.qualityOfWorkScore4, submission.evaluationData.qualityOfWorkScore5]);
-                        const adaptabilityScore = calculateScore([submission.evaluationData.adaptabilityScore1, submission.evaluationData.adaptabilityScore2, submission.evaluationData.adaptabilityScore3]);
-                        const teamworkScore = calculateScore([submission.evaluationData.teamworkScore1, submission.evaluationData.teamworkScore2, submission.evaluationData.teamworkScore3]);
-                        const reliabilityScore = calculateScore([submission.evaluationData.reliabilityScore1, submission.evaluationData.reliabilityScore2, submission.evaluationData.reliabilityScore3, submission.evaluationData.reliabilityScore4]);
-                        const ethicalScore = calculateScore([submission.evaluationData.ethicalScore1, submission.evaluationData.ethicalScore2, submission.evaluationData.ethicalScore3, submission.evaluationData.ethicalScore4]);
-                        const customerServiceScore = calculateScore([submission.evaluationData.customerServiceScore1, submission.evaluationData.customerServiceScore2, submission.evaluationData.customerServiceScore3, submission.evaluationData.customerServiceScore4, submission.evaluationData.customerServiceScore5]);
-
-                        const overallWeightedScore = (
-                          (jobKnowledgeScore * 0.20) +
-                          (qualityOfWorkScore * 0.20) +
-                          (adaptabilityScore * 0.10) +
-                          (teamworkScore * 0.10) +
-                          (reliabilityScore * 0.05) +
-                          (ethicalScore * 0.05) +
-                          (customerServiceScore * 0.30)
-                        );
-
-                        return overallWeightedScore >= 3.0 ? 'bg-green-600' : 'bg-red-600';
-                      })()}`}>
-                        {(() => {
-                          const jobKnowledgeScore = calculateScore([submission.evaluationData.jobKnowledgeScore1, submission.evaluationData.jobKnowledgeScore2, submission.evaluationData.jobKnowledgeScore3]);
-                          const qualityOfWorkScore = calculateScore([submission.evaluationData.qualityOfWorkScore1, submission.evaluationData.qualityOfWorkScore2, submission.evaluationData.qualityOfWorkScore3, submission.evaluationData.qualityOfWorkScore4, submission.evaluationData.qualityOfWorkScore5]);
-                          const adaptabilityScore = calculateScore([submission.evaluationData.adaptabilityScore1, submission.evaluationData.adaptabilityScore2, submission.evaluationData.adaptabilityScore3]);
-                          const teamworkScore = calculateScore([submission.evaluationData.teamworkScore1, submission.evaluationData.teamworkScore2, submission.evaluationData.teamworkScore3]);
-                          const reliabilityScore = calculateScore([submission.evaluationData.reliabilityScore1, submission.evaluationData.reliabilityScore2, submission.evaluationData.reliabilityScore3, submission.evaluationData.reliabilityScore4]);
-                          const ethicalScore = calculateScore([submission.evaluationData.ethicalScore1, submission.evaluationData.ethicalScore2, submission.evaluationData.ethicalScore3, submission.evaluationData.ethicalScore4]);
-                          const customerServiceScore = calculateScore([submission.evaluationData.customerServiceScore1, submission.evaluationData.customerServiceScore2, submission.evaluationData.customerServiceScore3, submission.evaluationData.customerServiceScore4, submission.evaluationData.customerServiceScore5]);
-
-                          const overallWeightedScore = (
-                            (jobKnowledgeScore * 0.20) +
-                            (qualityOfWorkScore * 0.20) +
-                            (adaptabilityScore * 0.10) +
-                            (teamworkScore * 0.10) +
-                            (reliabilityScore * 0.05) +
-                            (ethicalScore * 0.05) +
-                            (customerServiceScore * 0.30)
-                          );
-
-                          return overallWeightedScore >= 3.0 ? 'PASS' : 'FAIL';
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Priority Areas for Improvement */}
-            {submission.evaluationData && (submission.evaluationData.priorityArea1 || submission.evaluationData.priorityArea2 || submission.evaluationData.priorityArea3) && (
-              <Card>
-                <CardContent className="pt-6 pb-4">
-                  <h4 className="font-semibold text-lg text-gray-900 mb-4">Priority Areas for Improvement</h4>
-                  <div className="space-y-3">
-                    {submission.evaluationData.priorityArea1 && (
-                      <div className="p-3 bg-yellow-50 border border-gray-300 rounded-md">
-                        <span className="font-medium text-sm">1. </span>
-                        <span className="text-sm text-gray-700">{submission.evaluationData.priorityArea1}</span>
-                      </div>
-                    )}
-                    {submission.evaluationData.priorityArea2 && (
-                      <div className="p-3 bg-yellow-50 border border-gray-300 rounded-md">
-                        <span className="font-medium text-sm">2. </span>
-                        <span className="text-sm text-gray-700">{submission.evaluationData.priorityArea2}</span>
-                      </div>
-                    )}
-                    {submission.evaluationData.priorityArea3 && (
-                      <div className="p-3 bg-yellow-50 border border-gray-300 rounded-md">
-                        <span className="font-medium text-sm">3. </span>
-                        <span className="text-sm text-gray-700">{submission.evaluationData.priorityArea3}</span>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Remarks */}
-            {submission.evaluationData && submission.evaluationData.remarks && (
-              <Card>
-                <CardContent className="pt-6 pb-4">
-                  <h4 className="font-semibold text-lg text-gray-900 mb-4">Remarks</h4>
-                  <div className="p-3 bg-yellow-50 border border-gray-300 rounded-md">
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{submission.evaluationData.remarks}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Acknowledgement */}
-            {submission.evaluationData && (
-              <Card>
-                <CardContent className="pt-6 pb-4">
-                  <h4 className="font-semibold text-lg text-gray-900 mb-4">Acknowledgement</h4>
-                  <p className="text-sm text-gray-600 mb-4">
-                    I hereby acknowledge that the Evaluator has explained to me, to the best of their ability, 
-                    and in a manner I fully understand, my performance and respective rating on this performance evaluation.
-                  </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Employee Section */}
-                    <div className="space-y-4">
-                      {/* Signature area */}
-                      <div className="text-center">
-                        <div className="h-20 border-2 border-dashed border-white rounded-lg flex items-center justify-center bg-gray-50 relative">
-                          {/* Name as background text - always show */}
-                          <span className="text-md text-gray-900 font-bold">
-                            {submission.employeeName || 'Employee Name'}
-                          </span>
-                          {/* Signature overlay - centered and overlapping */}
-                          {signatureLoading ? (
-                            <div className="absolute top-7 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-xs text-gray-500">
-                              Loading signature...
-                            </div>
-                          ) : signatureError ? (
-                            <div className="absolute top-7 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-xs text-red-500">
-                              Error loading signature
-                            </div>
-                          ) : ((isApproved || approvalData?.employeeSignature || submission.employeeSignature) && (employeeSignature?.signature || approvalData?.employeeSignature || submission.employeeSignature)) && (
-                            <img 
-                              src={employeeSignature?.signature || approvalData?.employeeSignature || submission.employeeSignature || ''} 
-                              alt="Employee Signature" 
-                              className="absolute top-7 left-1/2 transform -translate-x-1/2 -translate-y-1/2 max-h-16 max-w-full object-contain"
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                              }}
-                            />
+                              return (
+                                <tr key={item.question_number}>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.title}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.indicator}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.example}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center font-medium">
+                                    {item.score}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center">
+                                    <div
+                                      className={`px-2 py-1 rounded text-sm font-medium ${ratingBG(
+                                        item.score
+                                      )}`}
+                                    >
+                                      {rating(item.score)}
+                                    </div>
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">
+                                    {item.comment || ""}
+                                  </td>
+                                </tr>
+                              );
+                            }
                           )}
-                        </div>
-                      </div>
-                      
-                      {/* Action Section - Only show if showApprovalButton is true */}
-                      {showApprovalButton && (
-                        <div className="mt-6 space-y-4">
-                          {/* Approve Button - Only show if not approved */}
-                          {!isApproved && (
-                            <div className="space-y-3">
-                              <div className="flex justify-center">
-                                <Button
-                                  onClick={handleApproveEvaluation}
-                                  disabled={!submission.id || isApproving}
-                                  className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 text-sm font-medium disabled:bg-gray-400 disabled:cursor-not-allowed shadow-sm"
-                                >
-                                  {isApproving ? (
-                                    <>
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                                      Approving...
-                                    </>
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Step 3: Adaptability */}
+              {submission.adaptability && (
+                <Card className="shadow-md hide-in-print">
+                  <CardHeader className="bg-yellow-50 border-b border-yellow-200">
+                    <CardTitle className="text-xl font-semibold text-yellow-900">
+                      III. ADAPTABILITY
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Flexibility in handling change. Ability to work
+                      effectively in diverse situations. Resilience in the face
+                      of challenges.
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900"></th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Behavioral Indicators
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Example
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">
+                              Score
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">
+                              Rating
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Comments
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(submission.adaptability || []).map(
+                            (item: {
+                              question_number: 1 | 2 | 3;
+                              score: number;
+                              comment: string;
+                            }) => {
+                              const indicators =
+                                ADAPTABILITY[item.question_number];
+
+                              return (
+                                <tr key={item.question_number}>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.title}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.indicator}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.example}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center font-medium">
+                                    {item.score}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center">
+                                    <div
+                                      className={`px-2 py-1 rounded text-sm font-medium ${ratingBG(
+                                        item.score
+                                      )}`}
+                                    >
+                                      {rating(item.score)}
+                                    </div>
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">
+                                    {item.comment || ""}
+                                  </td>
+                                </tr>
+                              );
+                            }
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Step 4: Teamwork */}
+              {submission.teamworks && (
+                <Card className="shadow-md hide-in-print">
+                  <CardHeader className="bg-purple-50 border-b border-purple-200">
+                    <CardTitle className="text-xl font-semibold text-purple-900">
+                      IV. TEAMWORK
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Ability to work well with others. Contribution to team
+                      goals and projects. Supportiveness of team members.
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900"></th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Behavioral Indicators
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Example
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">
+                              Score
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">
+                              Rating
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Comments
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(submission.teamworks || []).map(
+                            (item: {
+                              question_number: 1 | 2 | 3;
+                              score: number;
+                              comment: string;
+                            }) => {
+                              const indicators = TEAMWORK[item.question_number];
+
+                              return (
+                                <tr key={item.question_number}>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.title}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.indicator}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.example}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center font-medium">
+                                    {item.score}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center">
+                                    <div
+                                      className={`px-2 py-1 rounded text-sm font-medium ${ratingBG(
+                                        item.score
+                                      )}`}
+                                    >
+                                      {rating(item.score)}
+                                    </div>
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">
+                                    {item.comment || ""}
+                                  </td>
+                                </tr>
+                              );
+                            }
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Step 5: Reliability */}
+              {submission.reliabilities && (
+                <Card className="shadow-md hide-in-print">
+                  <CardHeader className="bg-indigo-50 border-b border-indigo-200">
+                    <CardTitle className="text-xl font-semibold text-indigo-900">
+                      V. RELIABILITY
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Consistency in attendance and punctuality. Meeting
+                      commitments and fulfilling responsibilities.
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900"></th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Behavioral Indicators
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Example
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">
+                              Score
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">
+                              Rating
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Comments
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(submission.reliabilities || []).map(
+                            (item: {
+                              question_number: 1 | 2 | 3 | 4;
+                              score: number;
+                              comment: string;
+                            }) => {
+                              const indicators =
+                                RELIABILITY[item.question_number];
+
+                              return (
+                                <tr key={item.question_number}>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.title}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.indicator}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.example}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center font-medium">
+                                    {item.score}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center">
+                                    <div
+                                      className={`px-2 py-1 rounded text-sm font-medium ${ratingBG(
+                                        item.score
+                                      )}`}
+                                    >
+                                      {rating(item.score)}
+                                    </div>
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">
+                                    {item.comment || ""}
+                                  </td>
+                                </tr>
+                              );
+                            }
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Step 6: Ethical & Professional Behavior */}
+              {submission.ethicals && (
+                <Card className="shadow-md hide-in-print">
+                  <CardHeader className="bg-red-50 border-b border-red-200">
+                    <CardTitle className="text-xl font-semibold text-red-900">
+                      VI. ETHICAL & PROFESSIONAL BEHAVIOR
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Complies with company policies and ethical standards.
+                      Accountability for one's actions. Professionalism in
+                      interactions with coworkers and clients.
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900"></th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Behavioral Indicators
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Example
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">
+                              Score
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">
+                              Rating
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Comments
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(submission.ethicals || []).map(
+                            (item: {
+                              question_number: 1 | 2 | 3 | 4;
+                              score: number;
+                              explanation: string;
+                            }) => {
+                              const indicators = ETHICAL[item.question_number];
+
+                              return (
+                                <tr key={item.question_number}>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.title}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.indicator}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.example}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center font-medium">
+                                    {item.score}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center">
+                                    <div
+                                      className={`px-2 py-1 rounded text-sm font-medium ${ratingBG(
+                                        item.score
+                                      )}`}
+                                    >
+                                      {rating(item.score)}
+                                    </div>
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">
+                                    {item.explanation || ""}
+                                  </td>
+                                </tr>
+                              );
+                            }
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Step 7: Managerial Skills - Only for Basic HO evaluations */}
+              {evaluationType === 'basic' && submission.managerial_skills && (
+                <Card className="shadow-md hide-in-print">
+                  <CardHeader className="bg-teal-50 border-b border-teal-200">
+                    <CardTitle className="text-xl font-semibold text-teal-900">
+                      VII. MANAGERIAL SKILLS
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Leadership abilities. Decision-making skills. Team management and development.
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900"></th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Behavioral Indicators
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Example
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">
+                              Score
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">
+                              Rating
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Comments
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(submission.managerial_skills || []).map(
+                            (item: {
+                              question_number: 1 | 2 | 3 | 4 | 5 | 6;
+                              score: number;
+                              explanation: string;
+                            }) => {
+                              return (
+                                <tr key={item.question_number}>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    Question {item.question_number}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    Managerial Skills Indicator {item.question_number}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    Example for Managerial Skills {item.question_number}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center font-medium">
+                                    {item.score}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center">
+                                    <div
+                                      className={`px-2 py-1 rounded text-sm font-medium ${ratingBG(
+                                        item.score
+                                      )}`}
+                                    >
+                                      {rating(item.score)}
+                                    </div>
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">
+                                    {item.explanation || ""}
+                                  </td>
+                                </tr>
+                              );
+                            }
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Step 7: Customer Service - Only show for default evaluations */}
+              {evaluationType === 'default' && submission.customer_services && (
+                <Card className="shadow-md hide-in-print">
+                  <CardHeader className="bg-teal-50 border-b border-teal-200">
+                    <CardTitle className="text-xl font-semibold text-teal-900">
+                      VII. CUSTOMER SERVICE
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Customer satisfaction. Responsiveness to customer needs.
+                      Professional and positive interactions with customers.
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900"></th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Behavioral Indicators
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Example
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-24">
+                              Score
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 w-32">
+                              Rating
+                            </th>
+                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                              Comments
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(submission.customer_services || []).map(
+                            (item: {
+                              question_number: 1 | 2 | 3 | 4 | 5;
+                              score: number;
+                              explanation: string;
+                            }) => {
+                              const indicators =
+                                CUSTOMER_SERVICE[item.question_number];
+
+                              return (
+                                <tr key={item.question_number}>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.title}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.indicator}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                                    {indicators.example}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center font-medium">
+                                    {item.score}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center">
+                                    <div
+                                      className={`px-2 py-1 rounded text-sm font-medium ${ratingBG(
+                                        item.score
+                                      )}`}
+                                    >
+                                      {rating(item.score)}
+                                    </div>
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700 bg-yellow-50">
+                                    {item.explanation || ""}
+                                  </td>
+                                </tr>
+                              );
+                            }
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Performance Assessment Table */}
+              {submission && (
+                <div className="print-overall-assessment-wrapper">
+                  <Card className="shadow-md">
+                    <CardContent className="p-6">
+                      <div className="space-y-6">
+                        <h3 className="text-base font-semibold text-gray-900 mb-4">
+                          Overall Assessment
+                        </h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse border-2 border-gray-400 print-overall-assessment-table">
+                            <thead>
+                              <tr className="bg-gray-200">
+                                <th className="border-2 border-gray-400 px-4 py-3 text-left font-bold text-gray-900 text-base print-criteria-col">
+                                  Performance Criteria
+                                </th>
+                                <th className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-gray-900 text-base w-32 print-rating-col">
+                                  Rating
+                                </th>
+                                <th className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-gray-900 text-base w-24 print-score-col">
+                                  Score
+                                </th>
+                                <th className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-gray-900 text-base w-24 print-weight-col">
+                                  Weight (%)
+                                </th>
+                                <th className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-gray-900 text-base w-32 print-weighted-col">
+                                  Weighted Score
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {/* Job Knowledge */}
+                              <tr>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
+                                  Job Knowledge
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center space-x-1">
+                                    <span
+                                      className={`px-2 py-1 rounded text-sm font-bold screen-rating-badge ${getRatingColorForLabel(
+                                        getRatingLabel(
+                                          calculateScore(
+                                            (submission.job_knowledge || []).map(
+                                              (item: any) => {
+                                                return String(item.score || 0);
+                                              }
+                                            )
+                                          )
+                                        )
+                                      )}`}
+                                    >
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.job_knowledge || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                    <span className="print-rating-text">
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.job_knowledge || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {Math.round(
+                                    calculateScore(
+                                      (submission.job_knowledge || []).map(
+                                        (item: any) => {
+                                          return String(item.score || 0);
+                                        }
+                                      )
+                                    ) * 10
+                                  ) / 10}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? '25%' : '20%'}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? (
+                                    (calculateScore(
+                                      (submission.job_knowledge || []).map(
+                                        (item: any) => {
+                                          return String(item.score || 0);
+                                        }
+                                      )
+                                    ) * 0.25).toFixed(2)
                                   ) : (
-                                    '✓ Approve Evaluation'
+                                    Math.round(
+                                      calculateScore(
+                                        (submission.job_knowledge || []).map(
+                                          (item: any) => {
+                                            return String(item.score || 0);
+                                          }
+                                        )
+                                      ) *
+                                        0.2 *
+                                        10
+                                    ) / 10
                                   )}
-                                </Button>
-                              </div>
-                              <p className="text-xs text-gray-500 text-center">
-                                Click to acknowledge and approve this evaluation
-                              </p>
-                              {approvalError && (
-                                <p className="text-xs text-red-600 bg-red-50 p-3 rounded">
-                                  {approvalError}
-                                </p>
-                              )}
-                            </div>
-                          )}
-                          
-                          {/* Approved Status - Only show if approved */}
-                          {isApproved && (
-                            <div className="space-y-3 px-4 md:px-0">
-                              <div className="flex items-center justify-center space-x-2">
-                                <Badge className="bg-green-100 text-green-800 px-4 py-2 text-sm font-medium">
-                                  ✓ Evaluation Approved
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-gray-500 text-center">
-                                Approved on {approvalData?.approvedAt ? new Date(approvalData.approvedAt).toLocaleDateString('en-US', {
-                                  year: 'numeric',
-                                  month: 'long',
-                                  day: 'numeric'
-                                }) : 'Unknown date'}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      
-                      {/* Employee Name and Date */}
-                      <div className="text-center">
-                        <p className="text-sm font-medium text-gray-900">
-                          {submission.employeeName || 'Employee Name'}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {submission.employeeApprovedAt ? new Date(submission.employeeApprovedAt).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric'
-                          }) : 'Not approved yet'}
-                        </p>
-                      </div>
-                      
-                    </div>
+                                </td>
+                              </tr>
 
-                    {/* Evaluator Section */}
-                    <div className="space-y-4">
-                      {/* Signature area */}
-                      <div className="text-center">
-                        <div className="h-20 border-2 border-dashed border-white rounded-lg flex items-center justify-center bg-gray-50 relative">
-                          {/* Name as background text - always show */}
-                          <span className="text-md text-gray-900 font-bold">
-                            {submission.evaluator || submission.evaluationData?.evaluatorSignature || submission.evaluationData?.evaluatorName || 'Evaluator Name'}
-                          </span>
-                          {/* Signature overlay - automatically show when signature exists */}
-                          {(submission.evaluatorSignature || submission.evaluationData?.evaluatorSignatureImage || submission.evaluationData?.evaluatorSignature) ? (
-                            <img 
-                              src={submission.evaluatorSignature || submission.evaluationData?.evaluatorSignatureImage || submission.evaluationData?.evaluatorSignature}
-                              alt="Evaluator Signature" 
-                              className="absolute top-7 left-1/2 transform -translate-x-1/2 -translate-y-1/2 max-h-16 max-w-full object-contain"
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <span className="absolute top-7 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-gray-400 text-sm">No signature</span>
-                          )}
+                              {/* Quality of Work */}
+                              <tr>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
+                                  Quality of Work
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center space-x-1">
+                                    <span
+                                      className={`px-2 py-1 rounded text-sm font-bold screen-rating-badge ${getRatingColorForLabel(
+                                        getRatingLabel(
+                                          calculateScore(
+                                            (submission.quality_of_works || []).map(
+                                              (item: any) => {
+                                                return String(item.score || 0);
+                                              }
+                                            )
+                                          )
+                                        )
+                                      )}`}
+                                    >
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.quality_of_works || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                    <span className="print-rating-text">
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.quality_of_works || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {calculateScore(
+                                    (submission.quality_of_works || []).map(
+                                      (item: any) => {
+                                        return String(item.score || 0);
+                                      }
+                                    )
+                                  ).toFixed(2)}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? '25%' : '20%'}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? (
+                                    (calculateScore(
+                                      (submission.quality_of_works || []).map(
+                                        (item: any) => {
+                                          return String(item.score || 0);
+                                        }
+                                      )
+                                    ) * 0.25).toFixed(2)
+                                  ) : (
+                                    (calculateScore(
+                                      (submission.quality_of_works || []).map(
+                                        (item: any) => {
+                                          return String(item.score || 0);
+                                        }
+                                      )
+                                    ) * 0.2).toFixed(2)
+                                  )}
+                                </td>
+                              </tr>
+
+                              {/* Adaptability */}
+                              <tr>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
+                                  Adaptability
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center space-x-1">
+                                    <span
+                                      className={`px-2 py-1 rounded text-sm font-bold screen-rating-badge ${getRatingColorForLabel(
+                                        getRatingLabel(
+                                          calculateScore(
+                                            (submission.adaptability || []).map(
+                                              (item: any) => {
+                                                return String(item.score || 0);
+                                              }
+                                            )
+                                          )
+                                        )
+                                      )}`}
+                                    >
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.adaptability || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                    <span className="print-rating-text">
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.adaptability || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {calculateScore(
+                                    (submission.adaptability || []).map((item: any) => {
+                                      return String(item.score || 0);
+                                    })
+                                  ).toFixed(2)}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? '15%' : '10%'}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? (
+                                    (calculateScore(
+                                      (submission.adaptability || []).map(
+                                        (item: any) => {
+                                          return String(item.score || 0);
+                                        }
+                                      )
+                                    ) * 0.15).toFixed(2)
+                                  ) : (
+                                    (calculateScore(
+                                      (submission.adaptability || []).map(
+                                        (item: any) => {
+                                          return String(item.score || 0);
+                                        }
+                                      )
+                                    ) * 0.1).toFixed(2)
+                                  )}
+                                </td>
+                              </tr>
+
+                              {/* Teamwork */}
+                              <tr>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
+                                  Teamwork
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center space-x-1">
+                                    <span
+                                      className={`px-2 py-1 rounded text-sm font-bold screen-rating-badge ${getRatingColorForLabel(
+                                        getRatingLabel(
+                                          calculateScore(
+                                            (submission.teamworks || []).map(
+                                              (item: any) => {
+                                                return String(item.score || 0);
+                                              }
+                                            )
+                                          )
+                                        )
+                                      )}`}
+                                    >
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.teamworks || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                    <span className="print-rating-text">
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.teamworks || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {calculateScore(
+                                    (submission.teamworks || []).map((item: any) => {
+                                      return String(item.score || 0);
+                                    })
+                                  ).toFixed(2)}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? '15%' : '10%'}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? (
+                                    (calculateScore(
+                                      (submission.teamworks || []).map((item: any) => {
+                                        return String(item.score || 0);
+                                      })
+                                    ) * 0.15).toFixed(2)
+                                  ) : (
+                                    (calculateScore(
+                                      (submission.teamworks || []).map((item: any) => {
+                                        return String(item.score || 0);
+                                      })
+                                    ) * 0.1).toFixed(2)
+                                  )}
+                                </td>
+                              </tr>
+
+                              {/* Reliability */}
+                              <tr>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
+                                  Reliability
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center space-x-1">
+                                    <span
+                                      className={`px-2 py-1 rounded text-sm font-bold screen-rating-badge ${getRatingColorForLabel(
+                                        getRatingLabel(
+                                          calculateScore(
+                                            (submission.reliabilities || []).map(
+                                              (item: any) => {
+                                                return String(item.score || 0);
+                                              }
+                                            )
+                                          )
+                                        )
+                                      )}`}
+                                    >
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.reliabilities || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                    <span className="print-rating-text">
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.reliabilities || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {calculateScore(
+                                    (submission.reliabilities || []).map(
+                                      (item: any) => {
+                                        return String(item.score || 0);
+                                      }
+                                    )
+                                  ).toFixed(2)}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? '10%' : '5%'}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? (
+                                    (calculateScore(
+                                      (submission.reliabilities || []).map(
+                                        (item: any) => {
+                                          return String(item.score || 0);
+                                        }
+                                      )
+                                    ) * 0.1).toFixed(2)
+                                  ) : (
+                                    (calculateScore(
+                                      (submission.reliabilities || []).map(
+                                        (item: any) => {
+                                          return String(item.score || 0);
+                                        }
+                                      )
+                                    ) * 0.05).toFixed(2)
+                                  )}
+                                </td>
+                              </tr>
+
+                              {/* Ethical & Professional Behavior */}
+                              <tr>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
+                                  Ethical & Professional Behavior
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center space-x-1">
+                                    <span
+                                      className={`px-2 py-1 rounded text-sm font-bold screen-rating-badge ${getRatingColorForLabel(
+                                        getRatingLabel(
+                                          calculateScore(
+                                            (submission.ethicals || []).map(
+                                              (item: any) => {
+                                                return String(item.score || 0);
+                                              }
+                                            )
+                                          )
+                                        )
+                                      )}`}
+                                    >
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.ethicals || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                    <span className="print-rating-text">
+                                      {getRatingLabel(
+                                        calculateScore(
+                                          (submission.ethicals || []).map(
+                                            (item: any) => {
+                                              return String(item.score || 0);
+                                            }
+                                          )
+                                        )
+                                      )}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {calculateScore(
+                                    (submission.ethicals || []).map((item: any) => {
+                                      return String(item.score || 0);
+                                    })
+                                  ).toFixed(2)}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? '10%' : '5%'}
+                                </td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                  {evaluationType === 'rankNfile' || evaluationType === 'basic' ? (
+                                    (calculateScore(
+                                      (submission.ethicals || []).map((item: any) => {
+                                        return String(item.score || 0);
+                                      })
+                                    ) * 0.1).toFixed(2)
+                                  ) : (
+                                    (calculateScore(
+                                      (submission.ethicals || []).map((item: any) => {
+                                        return String(item.score || 0);
+                                      })
+                                    ) * 0.05).toFixed(2)
+                                  )}
+                                </td>
+                              </tr>
+
+                              {/* Managerial Skills - Only for Basic HO */}
+                              {evaluationType === 'basic' && submission.managerial_skills && (
+                                <tr>
+                                  <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
+                                    Managerial Skills
+                                  </td>
+                                  <td className="border-2 border-gray-400 px-4 py-3 text-center">
+                                    <div className="flex items-center justify-center space-x-1">
+                                      <span
+                                        className={`px-2 py-1 rounded text-sm font-bold screen-rating-badge ${getRatingColorForLabel(
+                                          getRatingLabel(
+                                            calculateScore(
+                                              (submission.managerial_skills || []).map(
+                                                (item: any) => {
+                                                  return String(item.score || 0);
+                                                }
+                                              )
+                                            )
+                                          )
+                                        )}`}
+                                      >
+                                        {getRatingLabel(
+                                          calculateScore(
+                                            (submission.managerial_skills || []).map(
+                                              (item: any) => {
+                                                return String(item.score || 0);
+                                              }
+                                            )
+                                          )
+                                        )}
+                                      </span>
+                                      <span className="print-rating-text">
+                                        {getRatingLabel(
+                                          calculateScore(
+                                            (submission.managerial_skills || []).map(
+                                              (item: any) => {
+                                                return String(item.score || 0);
+                                              }
+                                            )
+                                          )
+                                        )}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                    {calculateScore(
+                                      (submission.managerial_skills || []).map((item: any) => {
+                                        return String(item.score || 0);
+                                      })
+                                    ).toFixed(2)}
+                                  </td>
+                                  <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                    30%
+                                  </td>
+                                  <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                    {(
+                                      calculateScore(
+                                        (submission.managerial_skills || []).map((item: any) => {
+                                          return String(item.score || 0);
+                                        })
+                                      ) * 0.3
+                                    ).toFixed(2)}
+                                  </td>
+                                </tr>
+                              )}
+
+                              {/* Customer Service - Only for Default evaluations */}
+                              {evaluationType === 'default' && submission.customer_services && (
+                                <tr>
+                                  <td className="border-2 border-gray-400 px-4 py-3 text-sm text-gray-700 font-medium">
+                                    Customer Service
+                                  </td>
+                                  <td className="border-2 border-gray-400 px-4 py-3 text-center">
+                                    <div className="flex items-center justify-center space-x-1">
+                                      <span
+                                        className={`px-2 py-1 rounded text-sm font-bold screen-rating-badge ${getRatingColorForLabel(
+                                          getRatingLabel(
+                                            calculateScore(
+                                              (submission.customer_services || []).map(
+                                                (item: any) => {
+                                                  return String(item.score || 0);
+                                                }
+                                              )
+                                            )
+                                          )
+                                        )}`}
+                                      >
+                                        {getRatingLabel(
+                                          calculateScore(
+                                            (submission.customer_services || []).map(
+                                              (item: any) => {
+                                                return String(item.score || 0);
+                                              }
+                                            )
+                                          )
+                                        )}
+                                      </span>
+                                      <span className="print-rating-text">
+                                        {getRatingLabel(
+                                          calculateScore(
+                                            (submission.customer_services || []).map(
+                                              (item: any) => {
+                                                return String(item.score || 0);
+                                              }
+                                            )
+                                          )
+                                        )}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                    {calculateScore(
+                                      (submission.customer_services || []).map(
+                                        (item: any) => {
+                                          return String(item.score || 0);
+                                        }
+                                      )
+                                    ).toFixed(2)}
+                                  </td>
+                                  <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                    30%
+                                  </td>
+                                  <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-base">
+                                    {(
+                                      calculateScore(
+                                        (submission.customer_services || []).map(
+                                          (item: any) => {
+                                            return String(item.score || 0);
+                                          }
+                                        )
+                                      ) * 0.3
+                                    ).toFixed(2)}
+                                  </td>
+                                </tr>
+                              )}
+
+                              {/* Overall Performance Rating */}
+                              <tr className="bg-gray-100">
+                                <td className="border-2 border-gray-400 px-4 py-3 text-sm font-bold text-gray-700">
+                                  Overall Performance Rating
+                                </td>
+                                <td
+                                  colSpan={2}
+                                  className="border-2 border-gray-400 px-4 py-3 text-center"
+                                ></td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center"></td>
+                                <td className="border-2 border-gray-400 px-4 py-3 text-center font-bold text-lg">
+                                  {finalRatingRounded.toFixed(2)}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Final Results */}
+                        <div className="mt-6 flex justify-center items-center space-x-8 print-performance-score-wrapper">
+                          <div className="text-center">
+                            <div className="text-4xl font-bold text-gray-700">
+                              {finalPercentage.toFixed(2)}
+                              %
+                            </div>
+                            <div className="text-base text-gray-500 mt-1">
+                              Performance Score
+                            </div>
+                          </div>
+                          <div
+                            className={`px-8 py-4 rounded-lg font-bold text-white text-xl ${
+                              finalIsPass ? "bg-green-600" : "bg-red-600"
+                            }`}
+                          >
+                            {finalIsPass ? "PASS" : "FAIL"}
+                          </div>
                         </div>
                       </div>
-                      
-                      {/* Evaluator Name and Date */}
-                      <div className="text-center">
-                        <p className="text-sm font-medium text-gray-900">
-                          {submission.evaluator || submission.evaluationData?.evaluatorSignature || submission.evaluationData?.evaluatorName || 'Evaluator Name'}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {submission.evaluatorApprovedAt || submission.evaluationData?.evaluatorSignatureDate ? new Date(submission.evaluatorApprovedAt || submission.evaluationData?.evaluatorSignatureDate).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric'
-                          }) : 'Not specified'}
-                        </p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Priority Areas for Improvement (always render; blank lines if none) */}
+              {submission && (
+                <Card>
+                  <CardContent className="pt-6 pb-4">
+                    <h4 className="font-semibold text-lg text-gray-900 mb-4 print-priority-header">
+                      Priority Areas for Improvement
+                    </h4>
+                    <p className="text-sm text-gray-600 mb-4 print-priority-description">
+                      This section identifies key areas the employee can focus
+                      on for development in the upcoming quarter. These can be
+                      specific skills, behaviors, or work outputs that will
+                      contribute to better overall performance and align with
+                      branch or company goals. Keep the feedback clear, helpful,
+                      and easy to act on.
+                    </p>
+                    <div className="space-y-3">
+                      {[1, 2, 3].map((idx) => {
+                        const value =
+                          idx === 1
+                            ? submission.priorityArea1
+                            : idx === 2
+                            ? submission.priorityArea2
+                            : submission.priorityArea3;
+                        return (
+                          <div
+                            key={idx}
+                            className="p-3 bg-yellow-50 border border-gray-300 rounded-md print-priority-item"
+                          >
+                            <div className="print-priority-row">
+                              <span className="font-medium text-sm print-priority-label">
+                                {idx}.{" "}
+                              </span>
+                              <p className="text-sm text-gray-700 print-priority-value min-h-[18px]">
+                                {value || ""}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Remarks (always render; blank box if none) */}
+              {submission && (
+                <Card>
+                  <CardContent className="pt-6 pb-4">
+                    <h4 className="font-semibold text-lg text-gray-900 mb-4 print-remarks-header">
+                      Remarks
+                    </h4>
+                    <div className="p-3 bg-yellow-50 border border-gray-300 rounded-md print-remarks-box min-h-[72px]">
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap min-h-[52px]">
+                        {submission.remarks || ""}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Acknowledgement */}
+              {submission && (
+                <Card>
+                  <CardContent className="pt-6 pb-4">
+                    <h4 className="font-semibold text-lg text-gray-900 mb-4 print-acknowledgement-header">
+                      Acknowledgement
+                    </h4>
+                    <p className="text-sm text-gray-600 mb-4 print-acknowledgement-description">
+                      I hereby acknowledge that the Evaluator has explained to
+                      me, to the best of their ability, and in a manner I fully
+                      understand, my performance and respective rating on this
+                      performance evaluation.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print-acknowledgement">
+                      {/* Employee Section */}
+                      <div>
+                        {/* Signature area */}
+                        <div className="text-center">
+                          <div className="h-20 border-2 border-dashed border-white rounded-lg flex items-center justify-center bg-gray-50 relative">
+                            {/* Print signature line */}
+                            <div className="print-signature-line"></div>
+                            {/* Name as background text - always show */}
+                            <span className="text-md text-gray-900 font-bold">
+                              {submission?.employee?.fname && submission?.employee?.lname
+                                ? `${submission.employee.fname} ${submission.employee.lname}`
+                                : "Employee Name"}
+                            </span>
+                            {/* Signature overlay - centered and overlapping */}
+                            {signatureLoading ? (
+                              <div className="absolute top-7 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-xs text-gray-500">
+                                Loading signature...
+                              </div>
+                            ) : signatureError ? (
+                              <div className="absolute top-7 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-xs text-red-500">
+                                Error loading signature
+                              </div>
+                            ) : submission.status === "completed" ? (
+                              submission.employee?.signature && (
+                                <img
+                                  src={
+                                    CONFIG.API_URL_STORAGE +
+                                      "/" +
+                                      submission.employee?.signature || ""
+                                  }
+                                  alt="Employee Signature"
+                                  className="absolute top-7 left-1/2 transform -translate-x-1/2 -translate-y-1/2 max-h-16 max-w-full object-contain"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = "none";
+                                  }}
+                                />
+                              )
+                            ) : (
+                              <div></div>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            Employee's Name & Signature
+                          </div>
+                        </div>
+
+                        {/* Action Section - Only show if showApprovalButton is true */}
+                        {showApprovalButton && (
+                          <div className="mt-6 space-y-4 no-print">
+                            {/* Approve Button - Only show if not approved */}
+                            {submission.status === "pending" && (
+                              <div className="space-y-3">
+                                <div className="flex justify-center">
+                                  <Button
+                                    onClick={handleApproveEvaluation}
+                                    disabled={!submission.id || isApproving}
+                                    className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 text-sm font-medium disabled:bg-gray-400 cursor-pointer hover:scale-110 transition-transform duration-200 shadow-sm"
+                                  >
+                                    {isApproving ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                        Approving...
+                                      </>
+                                    ) : (
+                                      "✓ Approve Evaluation"
+                                    )}
+                                  </Button>
+                                </div>
+                                <p className="text-xs text-gray-500 text-center">
+                                  Click to acknowledge and approve this
+                                  evaluation
+                                </p>
+                                {approvalError && (
+                                  <p className="text-xs text-center text-red-600 bg-red-50 p-3 rounded">
+                                    {approvalError}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Approved Status - Only show if approved */}
+                            {computedIsApproved &&
+                              submission.status === "completed" && (
+                                <div className="space-y-3 px-4 md:px-0">
+                                  <div className="flex items-center justify-center space-x-2">
+                                    <Badge className="bg-green-100 text-green-800 px-4 py-2 text-sm font-medium">
+                                      ✓ Evaluation Approved
+                                    </Badge>
+                                  </div>
+                                  <p className="text-xs text-gray-500 text-center">
+                                    Approved on{" "}
+                                    {submission.employeeApprovedAt
+                                      ? new Date(
+                                          submission.employeeApprovedAt
+                                        ).toLocaleDateString("en-US", {
+                                          year: "numeric",
+                                          month: "long",
+                                          day: "numeric",
+                                        })
+                                      : "Unknown date"}
+                                  </p>
+                                </div>
+                              )}
+                          </div>
+                        )}
+
+                        {/* Employee Date */}
+                        <div className="text-center">
+                          <p className="text-xs text-gray-500 mt-1 print-date-value">
+                            {submission.employeeApprovedAt ||
+                            submission.employeeApprovedAt
+                              ? new Date(
+                                  submission.employeeApprovedAt
+                                ).toLocaleDateString("en-US", {
+                                  year: "numeric",
+                                  month: "long",
+                                  day: "numeric",
+                                })
+                              : "Not approved yet"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Evaluator Section */}
+                      <div>
+                        {/* Signature area */}
+                        <div className="text-center">
+                          <div className="h-20 border-2 border-dashed border-white rounded-lg flex items-center justify-center bg-gray-50 relative">
+                            {/* Print signature line */}
+                            <div className="print-signature-line"></div>
+                            {/* Name as background text - always show */}
+                            <span className="text-md text-gray-900 font-bold">
+                              {submission?.evaluator.fname +
+                                " " +
+                                submission.evaluator.lname || "Evaluator Name"}
+                            </span>
+                            {/* Signature overlay - automatically show when signature exists */}
+                            {submission.evaluator.signature ? (
+                              <img
+                                src={
+                                  CONFIG.API_URL_STORAGE +
+                                  "/" +
+                                  submission.evaluator.signature
+                                }
+                                alt="Evaluator Signature"
+                                className="absolute top-7 left-1/2 transform -translate-x-1/2 -translate-y-1/2 max-h-16 max-w-full object-contain"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                }}
+                              />
+                            ) : (
+                              <span className="absolute top-7 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                                No signature
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            Evaluator's Name & Signature
+                          </div>
+                        </div>
+
+                        {/* Evaluator Date */}
+                        <div className="text-center">
+                          <p className="text-xs text-gray-500 mt-1">
+                            {submission.evaluatorApprovedAt
+                              ? new Date(
+                                  submission.evaluatorApprovedAt
+                                ).toLocaleDateString("en-US", {
+                                  year: "numeric",
+                                  month: "long",
+                                  day: "numeric",
+                                })
+                              : "Not specified"}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+                    {/* Confidentiality Notice */}
+                    <div className="mt-6 print-confidentiality-notice">
+                      <p className="text-xs text-gray-700 leading-relaxed">
+                        <strong>CONFIDENTIALITY NOTICE ver.042225:</strong>
+                        <br />
+                        This document, including any attachments, contains
+                        confidential and/or privileged information intended
+                        solely for internal use within the company. It is the
+                        intellectual property of SMCT Group of Companies,
+                        including its subsidiaries, businesses, and trade names.
+                        Unauthorized use, copying, distribution, or disclosure
+                        of this document, its contents, or any part thereof is
+                        strictly prohibited without the express written
+                        permission of SMCT Group of Companies.
+                      </p>
+                    </div>
+                    {/* Date section */}
+                    <div className="mt-5 print-date-section no-print">
+                      <span>Date: </span>
+                      <span className="print-date-box">
+                        {submission.employeeApprovedAt ||
+                        submission.evaluatorApprovedAt ||
+                        submission.created_at
+                          ? new Date(
+                              submission.employeeApprovedAt ||
+                                submission.evaluatorApprovedAt ||
+                                submission.created_at
+                            ).toLocaleDateString("en-GB", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                            })
+                          : new Date().toLocaleDateString("en-GB", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                            })}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+            {/* Print Footer */}
+            <div className="print-footer">
+              <p className="text-xs text-gray-700">
+                CONFIDENTIALITY NOTICE ver.042225: This document and its
+                contents are confidential and the intellectual property of SMCT
+                Group of Companies and its subsidiaries. Unauthorized use,
+                copying, distribution or disclosure is prohibited.
+              </p>
+            </div>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

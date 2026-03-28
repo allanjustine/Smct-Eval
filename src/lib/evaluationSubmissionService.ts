@@ -1,9 +1,13 @@
 // src/lib/evaluationSubmissionService.ts
 
-import { EvaluationData } from '@/components/evaluation/types';
+import { EvaluationPayload } from '@/components/evaluation/types';
 
 interface SubmissionPayload {
-  evaluationData: EvaluationData;
+  evaluationData: EvaluationPayload & {
+    employeeId?: string;
+    employeeName?: string;
+    employeeEmail?: string;
+  };
   evaluatorName: string;
   evaluatorId: string;
   submittedAt: string;
@@ -33,7 +37,11 @@ interface SubmissionResult {
   message: string;
   submittedAt: string;
   recipients: string[];
-  evaluationData: EvaluationData;
+  evaluationData: EvaluationPayload & {
+    employeeId?: string;
+    employeeName?: string;
+    employeeEmail?: string;
+  };
 }
 
 const MOCK_SUBMISSIONS_STORAGE_KEY = 'mockEvaluationSubmissions';
@@ -60,7 +68,11 @@ const getCurrentUser = () => {
 };
 
 export const submitEvaluation = async (
-  evaluationData: EvaluationData,
+  evaluationData: EvaluationPayload & {
+    employeeId?: string;
+    employeeName?: string;
+    employeeEmail?: string;
+  },
   evaluatorName: string
 ): Promise<SubmissionResult> => {
   console.log('Mock API Call: Submitting evaluation with data:', evaluationData);
@@ -150,7 +162,11 @@ export const getAllSubmissions = async (): Promise<SubmissionResult[]> => {
 // TODO: Replace with actual API calls when backend is ready:
 /*
 export const submitEvaluation = async (
-  evaluationData: EvaluationData,
+  evaluationData: EvaluationPayload & {
+    employeeId?: string;
+    employeeName?: string;
+    employeeEmail?: string;
+  },
   evaluatorName: string
 ): Promise<SubmissionResult> => {
   const response = await fetch('/api/evaluations/submit', {

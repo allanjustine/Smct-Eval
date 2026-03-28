@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,33 +12,42 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Combobox } from "@/components/ui/combobox";
-import SignaturePad from "@/components/SignaturePad";
+import SignaturePad, { SignaturePadRef } from "@/components/SignaturePad";
 import { AlertDialog } from "@/components/ui/alert-dialog";
 import Link from "next/link";
 import PageTransition from "@/components/PageTransition";
-import { CONFIG } from "../../../config/config";
-import { id } from "date-fns/locale";
-import clientDataService from "@/lib/clientDataService.api";
+import apiService from "@/lib/apiService";
+import { withPublicPage } from "@/hoc";
+import { dataURLtoFile } from "@/utils/data-url-to-file";
+import { Eye, EyeOff } from "lucide-react";
 
 interface FormDataType {
   fname: string;
   lname: string;
   username: string;
+  employee_id: string;
   email: string;
   contact: string;
+  date_hired: string;
   position_id: number | string;
   branch_id: number | string;
-  department_id?: number | string ;
+  department_id?: number | string;
   password: string;
   password_confirmation: string;
   signature: string;
 }
 
-export default function RegisterPage() {
+function RegisterPage() {
   const [isRegisterButtonClicked, setIsRegisterButtonClicked] = useState(false);
-  const [positions, setPositions] = useState<{value: string , label: string}[]>([]);
-  const [branches, setBranches] = useState<{value: string, label: string}[]>([]);
-  const [departments, setDepartments] = useState<{value: string, label: string}[]>([]);
+  const [positions, setPositions] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [branches, setBranches] = useState<{ value: string; label: string }[]>(
+    [],
+  );
+  const [departments, setDepartments] = useState<
+    { value: string; label: string }[]
+  >([]);
   const [alertDialog, setAlertDialog] = useState({
     open: false,
     title: "",
@@ -50,8 +59,10 @@ export default function RegisterPage() {
     fname: "",
     lname: "",
     username: "",
+    employee_id: "",
     email: "",
     contact: "",
+    date_hired: "",
     department_id: "",
     position_id: 0,
     branch_id: 0,
@@ -60,40 +71,106 @@ export default function RegisterPage() {
     signature: "",
   });
   const [signatureError, setSignatureError] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirmation, setShowPasswordConfirmation] =
+    useState(false);
   const [fieldErrors, setFieldErrors] = useState<{
     [key: string]: any;
   }>({});
+  const signaturePadRef = useRef<SignaturePadRef>(null);
 
- // Load positions from client data service.api
+  // Helper function to check if branch is HO, Head Office, or none
+  const isBranchHOOrNone = (branchId: string | number): boolean => {
+    if (!branchId) return false;
+
+    // Find the branch from branches array
+    const branch = branches.find((b) => {
+      const branchValue = String(b.value || "")
+        .toLowerCase()
+        .trim();
+      const branchLabel = String(b.label || "")
+        .toLowerCase()
+        .trim();
+      const branchIdStr = String(branchId).toLowerCase().trim();
+      return branchValue === branchIdStr || branchLabel === branchIdStr;
+    });
+
+    if (!branch) return false;
+
+    const branchName = branch.label.toLowerCase().trim();
+    // Check for various HO/Head Office variations
+    return (
+      branchName === "ho" ||
+      branchName === "head office /ho" ||
+      branchName === "head office" ||
+      branchName.includes("head office") ||
+      branchName === "none" ||
+      branchName === "none ho" ||
+      branchName.startsWith("ho") ||
+      branchName.startsWith("ho-") ||
+      branchName.endsWith("/ho")
+    );
+  };
+
+  // Helper function to check if position is Branch Manager or Area Manager
+  const isManagerPosition = (positionId: string | number): boolean => {
+    if (!positionId) return false;
+
+    // Find the position from positions array
+    const position = positions.find((p) => {
+      const positionValue = String(p.value || "")
+        .toLowerCase()
+        .trim();
+      const positionLabel = String(p.label || "")
+        .toLowerCase()
+        .trim();
+      const positionIdStr = String(positionId).toLowerCase().trim();
+      return positionValue === positionIdStr || positionLabel === positionIdStr;
+    });
+
+    if (!position) return false;
+
+    const positionName = position.label.toLowerCase().trim();
+    // Check for Branch Manager or Area Manager
+    return (
+      positionName === "branch manager" ||
+      positionName === "area manager" ||
+      positionName.includes("branch manager") ||
+      positionName.includes("area manager")
+    );
+  };
+
+  // Load positions from client data service.api
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch positions using client data service
-        const positionsData = await clientDataService.getPositions();
-        setPositions(positionsData);
+        // Fetch positions using API service
+        const positionsDataFromAPI = await apiService.getPositions();
 
-        // Fetch departments using client data service
-        const departmentsData = await clientDataService.getDepartments();
-        setDepartments(departmentsData);
+        // Fetch departments using API service
+        const departmentsDataFromAPI = await apiService.getDepartments();
 
-        // Fetch departments using client data service
-        const branchData = await clientDataService.getBranches();
-        setBranches(branchData);
-        
+        // Fetch branches using API service
+        const branchDataFromAPI = await apiService.getBranches();
+        // Convert from {id, name} to {value, label} format for Combobox
+
+        setPositions(positionsDataFromAPI);
+        setDepartments(departmentsDataFromAPI);
+        setBranches(branchDataFromAPI);
       } catch (error) {
         console.error("Error fetching data:", error);
+        // Data will remain empty if API fails
       }
     };
 
     fetchData();
   }, []);
 
-
   const showAlert = (
     title: string,
     description: string,
     type: "success" | "error" | "warning" | "info",
-    onConfirm?: () => void
+    onConfirm?: () => void,
   ) => {
     setAlertDialog({
       open: true,
@@ -112,6 +189,15 @@ export default function RegisterPage() {
       case "email":
         if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
           errors.email = "Please enter a valid email address";
+        } else {
+          delete errors.email;
+        }
+        break;
+      case "employee_id":
+        if (value && !/^\d{4}-\d{6}$/.test(value)) {
+          errors.employee_id = "Format: 1234-567890 (4 digits, dash, 6 digits)";
+        } else {
+          delete errors.employee_id;
         }
         break;
       case "password":
@@ -132,8 +218,14 @@ export default function RegisterPage() {
         }
         break;
       case "contact":
-        if (value && !/^\d{11}$/.test(value)) {
-          errors.contact = "Contact number must be exactly 11 digits";
+        if (value) {
+          if (!/^\d{11}$/.test(value)) {
+            errors.contact = "Contact number must be exactly 11 digits";
+          } else if (!value.startsWith("09")) {
+            errors.contact = "Contact number must start with 09";
+          } else {
+            delete errors.contact;
+          }
         } else {
           delete errors.contact;
         }
@@ -168,6 +260,22 @@ export default function RegisterPage() {
       return;
     }
 
+    if (!formData.employee_id.trim()) {
+      showAlert("Missing Information", "Employee ID is required!", "error");
+      return;
+    }
+
+    // Validate Employee ID format (1234-567890)
+    const employeeIdRegex = /^\d{4}-\d{6}$/;
+    if (!employeeIdRegex.test(formData.employee_id)) {
+      showAlert(
+        "Invalid Employee ID",
+        "Employee ID must be in format: 1234-567890 (4 digits, dash, 6 digits)",
+        "error",
+      );
+      return;
+    }
+
     if (!formData.email.trim()) {
       showAlert("Missing Information", "Email is required!", "error");
       return;
@@ -179,13 +287,43 @@ export default function RegisterPage() {
       showAlert(
         "Invalid Email",
         "Please enter a valid email address!",
-        "error"
+        "error",
       );
       return;
     }
 
     if (!formData.contact.trim()) {
       showAlert("Missing Information", "Contact number is required!", "error");
+      return;
+    }
+
+    // Validate contact number format (must be 11 digits starting with 09)
+    const contactRegex = /^09\d{9}$/;
+    if (!contactRegex.test(formData.contact)) {
+      if (formData.contact.length !== 11) {
+        showAlert(
+          "Invalid Contact Number",
+          "Contact number must be exactly 11 digits!",
+          "error",
+        );
+      } else if (!formData.contact.startsWith("09")) {
+        showAlert(
+          "Invalid Contact Number",
+          "Contact number must start with 09!",
+          "error",
+        );
+      } else {
+        showAlert(
+          "Invalid Contact Number",
+          "Please enter a valid contact number!",
+          "error",
+        );
+      }
+      return;
+    }
+
+    if (!formData.date_hired.trim()) {
+      showAlert("Missing Information", "Date hired is required!", "error");
       return;
     }
 
@@ -199,12 +337,26 @@ export default function RegisterPage() {
       return;
     }
 
+    // Department is only required if branch IS HO/Head Office AND position is NOT Branch Manager or Area Manager
+    if (
+      isBranchHOOrNone(formData.branch_id) &&
+      !isManagerPosition(formData.position_id) &&
+      !formData.department_id
+    ) {
+      showAlert(
+        "Missing Information",
+        "Department is required for Head Office branches!",
+        "error",
+      );
+      return;
+    }
+
     // Validate passwords match
     if (formData.password !== formData.password_confirmation) {
       showAlert(
         "Password Mismatch",
         "Passwords do not match! Please try again.",
-        "error"
+        "error",
       );
       return;
     }
@@ -214,7 +366,7 @@ export default function RegisterPage() {
       showAlert(
         "Password Too Short",
         "Password must be at least 8 characters long!",
-        "warning"
+        "warning",
       );
       return;
     }
@@ -225,18 +377,20 @@ export default function RegisterPage() {
       showAlert(
         "Weak Password",
         "Password must contain at least one uppercase letter, one lowercase letter, and one number!",
-        "warning"
+        "warning",
       );
       return;
     }
 
-    // Validate signature
-    if (!formData.signature) {
+    // Validate signature - check both formData and ref (SignaturePad stores locally)
+    const signatureToValidate =
+      signaturePadRef.current?.getSignature() || formData.signature;
+    if (!signatureToValidate) {
       setSignatureError(true);
       showAlert(
         "Signature Required",
         "Please draw your digital signature to complete the registration!",
-        "warning"
+        "warning",
       );
       return;
     }
@@ -244,59 +398,92 @@ export default function RegisterPage() {
     setIsRegisterButtonClicked(true);
     // Then send the POST request with the user registration data
 
+    // Get the current signature from SignaturePad (may be local, not in formData yet)
+    const currentSignature =
+      signaturePadRef.current?.getSignature() || formData.signature;
+
     const formDataToUpload = new FormData();
 
     formDataToUpload.append("fname", formData?.fname);
     formDataToUpload.append("lname", formData.lname);
     formDataToUpload.append("username", formData.username);
+    // Remove dash from employee_id before sending (keep only numbers)
+    formDataToUpload.append(
+      "employee_id",
+      formData.employee_id.replace(/-/g, ""),
+    );
     formDataToUpload.append("email", formData.email);
     formDataToUpload.append("contact", formData.contact);
+    formDataToUpload.append("date_hired", formData.date_hired);
     formDataToUpload.append("position_id", String(formData.position_id));
     formDataToUpload.append("branch_id", String(formData.branch_id));
     formDataToUpload.append("department_id", String(formData.department_id));
     formDataToUpload.append("password", formData.password);
-    formDataToUpload.append("password_confirmation",formData.password_confirmation);
-    formDataToUpload.append("signature", formData.signature);
+    formDataToUpload.append(
+      "password_confirmation",
+      formData.password_confirmation,
+    );
 
-        try {
-          const data = await clientDataService.registerUser(formDataToUpload);
+    // Convert signature data URL to File object (PNG) for binary upload
+    if (currentSignature) {
+      try {
+        const signatureFile = dataURLtoFile(currentSignature, "signature.png");
 
-          showAlert(
-            "Registration Successful!",
-            "Account registration submitted successfully! Your registration is pending approval. You will be notified once approved.",
-            "success",
-            () => {
-              // Reset form
-              setFormData({
-                fname: "",
-                lname: "",
-                username: "",
-                email: "",
-                contact: "",
-                position_id: 0,
-                department_id: 0,
-                branch_id: 0,
-                password: "",
-                password_confirmation: "",
-                signature: "",
-              });
-              setSignatureError(false);
-              // Redirect to login page
-              window.location.href = "/";
-            })
-        }catch (error : any ) {
-          // console.error(error);
-            if (error.status === 422) {
-              setFieldErrors(error.errors);
-            }
-            if (error.status === 400) {
-              setFieldErrors({
-                signature: [error.message],
-              });
-            }
-        }finally{
-            setIsRegisterButtonClicked(false);
+        // Verify file was created correctly
+        if (!signatureFile || !(signatureFile instanceof File)) {
+          throw new Error("Failed to create signature file");
         }
+
+        // Ensure file has valid size
+        if (signatureFile.size === 0) {
+          throw new Error("Signature file is empty");
+        }
+
+        formDataToUpload.append("signature", signatureFile);
+
+        const data =
+          await apiService.createPendingRegistration(formDataToUpload);
+
+        showAlert(
+          "Registration Successful!",
+          "Account registration submitted successfully! Your registration is pending approval. You will be notified once approved.",
+          "success",
+          () => {
+            // Reset form
+            setFormData({
+              fname: "",
+              lname: "",
+              username: "",
+              employee_id: "",
+              email: "",
+              contact: "",
+              date_hired: "",
+              position_id: 0,
+              department_id: "",
+              branch_id: 0,
+              password: "",
+              password_confirmation: "",
+              signature: "",
+            });
+            setSignatureError(false);
+            // Redirect to login page
+            window.location.href = "/";
+          },
+        );
+      } catch (error: any) {
+        if (error.response?.data?.errors) {
+          const backendErrors: Record<string, string> = {};
+
+          Object.keys(error.response.data.errors).forEach((field) => {
+            backendErrors[field] = error.response.data.errors[field][0];
+          });
+          setFieldErrors(backendErrors);
+        }
+        setIsRegisterButtonClicked(false);
+      }
+    } else {
+      console.warn("⚠️ No signature in formData");
+    }
   };
 
   return (
@@ -445,7 +632,7 @@ export default function RegisterPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <form onSubmit={  handleRegisterSubmit}>
+                <form onSubmit={handleRegisterSubmit}>
                   <div className="space-y-4">
                     {/* Personal Information */}
                     <div className="grid grid-cols-2 gap-4">
@@ -513,6 +700,48 @@ export default function RegisterPage() {
                       )}
                     </div>
 
+                    <div className="space-y-2 w-full">
+                      <Label htmlFor="employee_id">Employee ID</Label>
+                      <Input
+                        id="employee_id"
+                        placeholder="****-******"
+                        value={formData.employee_id}
+                        onChange={(e) => {
+                          // Remove all non-numeric characters except dash
+                          let value = e.target.value.replace(/[^\d-]/g, "");
+
+                          // Remove all dashes first
+                          value = value.replace(/-/g, "");
+
+                          // Limit to 10 digits (4 + 6)
+                          value = value.slice(0, 10);
+
+                          // Add dash after first 4 digits
+                          if (value.length > 4) {
+                            value = value.slice(0, 4) + "-" + value.slice(4);
+                          }
+
+                          setFormData({ ...formData, employee_id: value });
+                          validateField("employee_id", value);
+                        }}
+                        onKeyPress={(e) => {
+                          // Only allow numbers
+                          if (!/[0-9]/.test(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
+                        maxLength={11}
+                        className={
+                          fieldErrors?.employee_id ? "border-red-500" : ""
+                        }
+                      />
+                      {fieldErrors?.employee_id && (
+                        <p className="text-sm text-red-500">
+                          {fieldErrors?.employee_id}
+                        </p>
+                      )}
+                    </div>
+
                     <div className="space-y-2">
                       <Label htmlFor="registerEmail">Email</Label>
                       <Input
@@ -521,7 +750,21 @@ export default function RegisterPage() {
                         placeholder="name@company.com"
                         value={formData.email}
                         onChange={(e) => {
-                          setFormData({ ...formData, email: e.target.value });
+                          const value = e.target.value;
+                          setFormData({ ...formData, email: value });
+                          // Only validate if the email looks complete (has @ and at least one character after it)
+                          // This prevents showing errors while typing
+                          if (value.includes("@") && value.length > 3) {
+                            validateField("email", value);
+                          } else if (value === "") {
+                            // Clear error if field is empty
+                            const errors = { ...fieldErrors };
+                            delete errors.email;
+                            setFieldErrors(errors);
+                          }
+                        }}
+                        onBlur={(e) => {
+                          // Validate on blur to catch any remaining issues
                           validateField("email", e.target.value);
                         }}
                         className={fieldErrors?.email ? "border-red-500" : ""}
@@ -564,20 +807,58 @@ export default function RegisterPage() {
                       )}
                     </div>
 
+                    <div className="space-y-2 w-full">
+                      <Label htmlFor="date_hired">Date Hired</Label>
+                      <Input
+                        id="date_hired"
+                        type="date"
+                        value={formData.date_hired}
+                        onChange={(e) => {
+                          setFormData({
+                            ...formData,
+                            date_hired: e.target.value,
+                          });
+                          validateField("date_hired", e.target.value);
+                        }}
+                        className={
+                          fieldErrors?.date_hired
+                            ? "border-red-500 cursor-pointer"
+                            : ""
+                        }
+                      />
+                      {fieldErrors?.date_hired && (
+                        <p className="text-sm text-red-500">
+                          {fieldErrors?.date_hired}
+                        </p>
+                      )}
+                    </div>
+
                     <div className="space-y-2">
                       <Label htmlFor="position">Position</Label>
                       <Combobox
                         options={positions}
                         value={formData.position_id}
                         onValueChangeAction={(value) => {
-                          setFormData({ ...formData, position_id: value });
+                          const newFormData = {
+                            ...formData,
+                            position_id: value,
+                          };
+                          // Clear department if position is Branch Manager or Area Manager
+                          if (isManagerPosition(value)) {
+                            newFormData.department_id = "";
+                          }
+                          setFormData(newFormData);
                         }}
                         placeholder="Select your position"
                         searchPlaceholder="Search positions..."
                         emptyText="No positions found."
-                        className="w-1/2"
-                        error={fieldErrors?.position_id}
+                        className="w-full cursor-pointer hover:scale-101 transition-all duration-300"
                       />
+                      {fieldErrors?.position_id && (
+                        <p className="text-sm text-red-500">
+                          {fieldErrors?.contact}
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-2">
@@ -585,51 +866,87 @@ export default function RegisterPage() {
                       <Combobox
                         options={branches}
                         value={formData.branch_id}
-                        onValueChangeAction={(value) =>
-                          setFormData({ ...formData, branch_id: value })
-                        }
+                        onValueChangeAction={(value) => {
+                          // Clear department if branch is NOT HO/Head Office
+                          const newFormData = { ...formData, branch_id: value };
+                          if (!isBranchHOOrNone(value)) {
+                            newFormData.department_id = "";
+                          }
+                          setFormData(newFormData);
+                        }}
                         placeholder="Select your branch"
                         searchPlaceholder="Search branches..."
                         emptyText="No branches found."
-                        className="w-1/2"
-                        error={fieldErrors?.branch_id}
+                        className="w-full cursor-pointer hover:scale-101 transition-all duration-300"
                       />
+                      {fieldErrors?.branch_id && (
+                        <p className="text-sm text-red-500">
+                          {fieldErrors?.contact}
+                        </p>
+                      )}
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="department">Department</Label>
-                      <Combobox
-                        options={departments}
-                        value={String(formData.department_id)}
-                        onValueChangeAction={(value) =>
-                          setFormData({ ...formData, department_id: value })
-                        }
-                        placeholder="Select your branch"
-                        searchPlaceholder="Search branches..."
-                        emptyText="No branches found."
-                        className="w-1/2"
-                        error={fieldErrors?.department_id}
-                      />
-                    </div>
+                    {/* Department - Show only if branch is HO, Head Office, or none, AND position is NOT Branch Manager or Area Manager */}
+                    {isBranchHOOrNone(formData.branch_id) &&
+                      !isManagerPosition(formData.position_id) && (
+                        <div className="space-y-2">
+                          <Label htmlFor="department">Department</Label>
+                          <Combobox
+                            options={departments}
+                            value={String(formData.department_id)}
+                            onValueChangeAction={(value) =>
+                              setFormData({ ...formData, department_id: value })
+                            }
+                            placeholder="Select your department"
+                            searchPlaceholder="Search departments..."
+                            emptyText="No departments found."
+                            className="w-1/2 cursor-pointer hover:scale-105 transition-all duration-300"
+                            disabled={isManagerPosition(formData.position_id)}
+                          />
+                          {fieldErrors?.department_id && (
+                            <p className="text-sm text-red-500">
+                              {fieldErrors?.department_id}
+                            </p>
+                          )}
+                        </div>
+                      )}
 
                     <div className="space-y-2">
                       <Label htmlFor="registerPassword">Password</Label>
-                      <Input
-                        id="registerPassword"
-                        type="password"
-                        placeholder="••••••••"
-                        value={formData.password}
-                        onChange={(e) => {
-                          setFormData({
-                            ...formData,
-                            password: e.target.value,
-                          });
-                          validateField("password", e.target.value);
-                        }}
-                        className={
-                          fieldErrors?.password ? "border-red-500" : ""
-                        }
-                      />
+                      <div className="relative">
+                        <Input
+                          id="registerPassword"
+                          type={showPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          value={formData.password}
+                          onChange={(e) => {
+                            setFormData({
+                              ...formData,
+                              password: e.target.value,
+                            });
+                            validateField("password", e.target.value);
+                          }}
+                          className={
+                            fieldErrors?.password
+                              ? "border-red-500 pr-10"
+                              : "pr-10"
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                          aria-label={
+                            showPassword ? "Hide password" : "Show password"
+                          }
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-5 w-5" />
+                          ) : (
+                            <Eye className="h-5 w-5" />
+                          )}
+                        </button>
+                      </div>
                       {fieldErrors?.password && (
                         <p className="text-sm text-red-500">
                           {fieldErrors?.password}
@@ -641,27 +958,49 @@ export default function RegisterPage() {
                       <Label htmlFor="password_confirmation">
                         Confirm password
                       </Label>
-                      <Input
-                        id="password_confirmation"
-                        type="password"
-                        placeholder="••••••••"
-                        value={formData.password_confirmation}
-                        onChange={(e) => {
-                          setFormData({
-                            ...formData,
-                            password_confirmation: e.target.value,
-                          });
-                          validateField(
-                            "password_confirmation",
-                            e.target.value
-                          );
-                        }}
-                        className={
-                          fieldErrors?.password_confirmation
-                            ? "border-red-500"
-                            : ""
-                        }
-                      />
+                      <div className="relative">
+                        <Input
+                          id="password_confirmation"
+                          type={showPasswordConfirmation ? "text" : "password"}
+                          placeholder="••••••••"
+                          value={formData.password_confirmation}
+                          onChange={(e) => {
+                            setFormData({
+                              ...formData,
+                              password_confirmation: e.target.value,
+                            });
+                            validateField(
+                              "password_confirmation",
+                              e.target.value,
+                            );
+                          }}
+                          className={
+                            fieldErrors?.password_confirmation
+                              ? "border-red-500 pr-10"
+                              : "pr-10"
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShowPasswordConfirmation(
+                              !showPasswordConfirmation,
+                            )
+                          }
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                          aria-label={
+                            showPasswordConfirmation
+                              ? "Hide password"
+                              : "Show password"
+                          }
+                        >
+                          {showPasswordConfirmation ? (
+                            <EyeOff className="h-5 w-5" />
+                          ) : (
+                            <Eye className="h-5 w-5" />
+                          )}
+                        </button>
+                      </div>
                       {fieldErrors?.password_confirmation && (
                         <p className="text-sm text-red-500">
                           {fieldErrors?.password_confirmation}
@@ -672,16 +1011,25 @@ export default function RegisterPage() {
                     <div className="space-y-2">
                       <Label htmlFor="signature">Digital Signature *</Label>
                       <SignaturePad
+                        ref={signaturePadRef}
                         value={formData.signature}
                         onChangeAction={(signature) => {
-                          setFormData({ ...formData, signature });
+                          // Clear signature when null is passed (from Clear button)
+                          setFormData({
+                            ...formData,
+                            signature: signature || "",
+                          });
                           if (signature && signatureError) {
+                            setSignatureError(false);
+                          } else if (!signature) {
+                            // Clear signature error when signature is cleared
                             setSignatureError(false);
                           }
                         }}
                         className="w-full"
                         required={true}
                         hasError={signatureError}
+                        hideRequestReset={true}
                       />
                       <p className="text-sm text-gray-500">
                         By drawing your signature above, you agree to the terms
@@ -696,7 +1044,7 @@ export default function RegisterPage() {
 
                     <Button
                       type="submit"
-                      className={`w-full bg-blue-600 text-white hover:bg-green-700 transition-all duration-300 ${
+                      className={`w-full bg-blue-600 text-white hover:bg-green-700 transition-all duration-300 cursor-pointer hover:scale-110 ${
                         isRegisterButtonClicked
                           ? "transform scale-95 bg-blue-700 shadow-inner"
                           : "hover:scale-105 hover:shadow-lg active:scale-95"
@@ -766,3 +1114,7 @@ export default function RegisterPage() {
     </div>
   );
 }
+
+// Wrap with HOC for public page with transitions
+// redirectIfAuthenticated: true means logged-in users will be redirected to their dashboard
+export default withPublicPage(RegisterPage, { redirectIfAuthenticated: true });

@@ -1,24 +1,38 @@
-import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { UserProfile } from './ProfileCard';
-import { User, Camera, Save, X } from 'lucide-react';
-import { uploadProfileImage, deleteProfileImage } from '@/lib/imageUpload';
+import React, { useState, useEffect, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { UserProfile } from "./ProfileCard";
+import { User, Save, X } from "lucide-react";
 // Removed profileService import - we'll use UserContext directly
-import SignaturePad from '@/components/SignaturePad';
-import { useToast } from '@/hooks/useToast';
-import LoadingAnimation from '@/components/LoadingAnimation';
-import clientDataService from '@/lib/clientDataService';
+import SignaturePad, { SignaturePadRef } from "@/components/SignaturePad";
+import { useToast } from "@/hooks/useToast";
+import LoadingAnimation from "@/components/LoadingAnimation";
+import apiService from "@/lib/apiService";
+import { dataURLtoFile } from "../utils/data-url-to-file";
+
+import { useAuth } from "@/contexts/UserContext";
 
 interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
-  profile: UserProfile & { id?: string | number };
-  onSave: (updatedProfile: UserProfile) => void;
+  profile: UserProfile | null;
+  onSave: (updatedProfile: UserProfile | null) => void;
+}
+
+interface Account {
+  username?: string;
+  email?: string;
+  current_password?: string;
+  new_password?: string;
+  confirm_password?: string;
+  signature?: string | null;
 }
 
 export default function ProfileModal({
@@ -27,89 +41,85 @@ export default function ProfileModal({
   profile,
   onSave,
 }: ProfileModalProps) {
-  const [formData, setFormData] = useState<UserProfile>(profile);
+  const [formData, setFormData] = useState<Account | null>({
+    username: "",
+    email: "",
+    current_password: "",
+    new_password: "",
+    confirm_password: "",
+    signature: "",
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [branches, setBranches] = useState<{id: string, name: string}[]>([]);
-  const [positions, setPositions] = useState<{id: string, name: string}[]>([]);
   const { success } = useToast();
-
-  // Reset form data when profile changes
+  const { refreshUser } = useAuth();
+  const [open, setOpen] = useState(false);
+  const signaturePadRef = useRef<SignaturePadRef>(null);
+  const initializedProfileIdRef = useRef<string | number | null>(null); // Track which profile ID we've initialized
+  
+  // Reset form data when modal opens or profile changes
   useEffect(() => {
-    setFormData(profile);
-    setErrors({});
-  }, [profile]);
-
-  // Load branches and positions data
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [branchesData, positionsData] = await Promise.all([
-          clientDataService.getBranches(),
-          clientDataService.getPositions()
-        ]);
-        setBranches(branchesData);
-        setPositions(positionsData);
-      } catch (error) {
-        console.error('Error loading data:', error);
+    // Only initialize when modal opens and we haven't initialized yet, or when profile ID changes
+    if (isOpen && profile?.id) {
+      // Check if this is a different profile or first time opening
+      if (initializedProfileIdRef.current !== profile.id) {
+        setFormData((prev) => ({
+          ...prev,
+          username: profile?.username || "",
+          email: profile?.email || "",
+        }));
+        initializedProfileIdRef.current = profile.id; // Store profile ID to track changes
       }
-    };
-    loadData();
-  }, []);
+    }
+    
+    // Reset initialization flag when modal closes
+    if (!isOpen) {
+      initializedProfileIdRef.current = null;
+    }
+  }, [isOpen, profile?.id, profile?.username, profile?.email]);
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!formData.name.trim()) {
-      newErrors.name = 'Name is required';
+    // Current password validation removed - no uppercase/lowercase/number requirements
+
+    if (formData?.new_password && String(formData?.new_password).length < 8) {
+      newErrors.new_password = "Password must be at least 8 characters";
+    } else if (
+      formData?.new_password &&
+      !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.new_password)
+    ) {
+      newErrors.new_password =
+        "Password must contain uppercase, lowercase, and number";
     }
 
-    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Please enter a valid email address';
+    if (
+      formData?.confirm_password &&
+      String(formData?.confirm_password).length < 8
+    ) {
+      newErrors.confirm_password = "Password must be at least 8 characters";
+    } else if (
+      formData?.confirm_password &&
+      !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.confirm_password)
+    ) {
+      newErrors.confirm_password =
+        "Password must contain uppercase, lowercase, and number";
     }
 
-    if (formData.name.trim().length < 2) {
-      newErrors.name = 'Name must be at least 2 characters long';
+    if (
+      formData?.email &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData?.email)
+    ) {
+      newErrors.email = "Please enter a valid email address";
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleInputChange = (field: keyof UserProfile, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    
-    // Clear error when user starts typing
-    if (errors[field]) {
-      setErrors(prev => ({ ...prev, [field]: '' }));
-    }
-  };
-
-  const handleAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
-        setErrors(prev => ({ ...prev, avatar: 'File size must be less than 5MB' }));
-        return;
-      }
-
-      try {
-        setIsLoading(true);
-        const imageUrl = await uploadProfileImage(file);
-        setFormData(prev => ({ ...prev, avatar: imageUrl }));
-        setErrors(prev => ({ ...prev, avatar: '' }));
-      } catch (error) {
-        console.error('Error uploading image:', error);
-        setErrors(prev => ({ ...prev, avatar: 'Failed to upload image. Please try again.' }));
-      } finally {
-        setIsLoading(false);
-      }
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -117,42 +127,137 @@ export default function ProfileModal({
     setIsLoading(true);
     try {
       // Add a small delay to show the loading animation
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // If avatar changed and old avatar exists, delete the old one
-      if (formData.avatar !== profile.avatar && profile.avatar && !profile.avatar.startsWith('data:')) {
-        try {
-          await deleteProfileImage(profile.avatar);
-        } catch (error) {
-          console.warn('Failed to delete old avatar:', error);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const formDataToUpload = new FormData();
+      formDataToUpload.append("username", formData?.username || "");
+      formDataToUpload.append("email", formData?.email || "");
+      formDataToUpload.append(
+        "current_password",
+        formData?.current_password || ""
+      );
+      formDataToUpload.append("new_password", formData?.new_password || "");
+      formDataToUpload.append(
+        "confirm_password",
+        formData?.confirm_password || ""
+      );
+      // Get the current signature from SignaturePad (may be local, not in formData yet)
+      const currentSignature = signaturePadRef.current?.getSignature() || formData?.signature || null;
+      console.log("test", currentSignature);
+
+      if (currentSignature) {
+        const signature = dataURLtoFile(currentSignature, "signature.png");
+        if (signature) {
+          formDataToUpload.append("signature", signature);
         }
+      } else if (currentSignature === null || currentSignature === "") {
+        formDataToUpload.append("signature", "");
       }
 
-      // Call onSave directly - this will update the UserContext and localStorage
-      await onSave(formData);
-      
+      await apiService.updateEmployee_auth(formDataToUpload);
+
       // Show success toast
-      success('Profile updated successfully!');
+      success("Profile updated successfully!");
+
+      // Refresh user profile to get updated data (only once, after successful save)
+      // Use a small delay to ensure the API has processed the update
+      setTimeout(() => {
+        refreshUser();
+      }, 100);
+      
+      // Reset initialization flag so form reloads with new data next time
+      initializedProfileIdRef.current = null;
       onClose();
-    } catch (error) {
-      console.error('Error saving profile:', error);
-      setErrors(prev => ({ ...prev, general: 'Failed to save profile. Please try again.' }));
+
+      // Close modal after a brief delay to ensure state is updated
+    } catch (error: any) {
+      setOpen(true);
+      if (error.response?.data?.errors) {
+        const backendErrors: Record<string, string> = {};
+
+        Object.keys(error.response.data.errors).forEach((field) => {
+          backendErrors[field] = error.response.data.errors[field][0];
+        });
+        setErrors(backendErrors);
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleCancel = () => {
-    setFormData(profile); // Reset to original data
+    // Don't refresh user on cancel - it's unnecessary and can cause re-renders
+    // The profile prop will already have the latest data
     setErrors({});
+    // Reset initialization flag so form reloads with fresh data next time
+    initializedProfileIdRef.current = null;
     onClose();
   };
 
+  const handleRequestReset = async () => {
+    try {
+      setIsLoading(true);
+      await apiService.requestSignatureReset();
+      // After successful reset request, wait for admin approval
+      // Don't enable Clear Signature yet - user must wait for approval
+      success(
+        "Signature reset request submitted successfully! Please wait for admin approval. You will be able to clear your signature once approved."
+      );
+      // Refresh user after a small delay to get updated requestSignatureReset status
+      // This is needed for the SignaturePad polling to work correctly
+      setTimeout(() => {
+        refreshUser();
+      }, 100);
+    } catch (error: any) {
+      console.error("Error requesting signature reset:", error);
+      const errorMessage =
+        error.response?.data?.message ||
+        "Failed to request signature reset. Please try again.";
+      setErrors((prev) => ({
+        ...prev,
+        general: errorMessage,
+      }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
   return (
     <Dialog open={isOpen} onOpenChangeAction={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto px-6 py-6 animate-popup">
+        {/* Sticky Cancel and Save Buttons - Stay at top when scrolling */}
+        <div className="sticky top-0 z-50 flex justify-end gap-2 mb-4 -mr-6 pr-6 py-4 no-print">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleCancel}
+            disabled={isLoading}
+            className="flex items-center gap-2 bg-red-600 hover:bg-red-700 hover:text-white text-white cursor-pointer hover:scale-110 transition-transform duration-200 shadow-lg hover:shadow-xl transition-all duration-300"
+          >
+            <X className="w-5 h-5 text-white" />
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={isLoading}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 cursor-pointer hover:scale-110 transition-transform duration-200 shadow-lg hover:shadow-xl transition-all duration-300"
+            onClick={handleSubmit}
+          >
+            {isLoading ? (
+              <>
+                <LoadingAnimation size="sm" variant="spinner" color="white" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>Save Changes</span>
+              </>
+            )}
+          </Button>
+        </div>
+
         <DialogHeader className="px-1 ">
-        <DialogTitle className="flex items-center gap-2 text-xl bg-blue-200 px-3 py-2 rounded-lg">
+          <DialogTitle className="flex items-center gap-2 text-xl bg-blue-200 px-3 py-2 rounded-lg">
             <User className="w-5 h-5" />
             Edit Profile
           </DialogTitle>
@@ -162,160 +267,248 @@ export default function ProfileModal({
           {/* Avatar Section */}
           <div className="flex flex-col mt-7 items-center space-y-4">
             <div className="relative">
-              <div className="h-24 w-24 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold text-2xl">
-                {formData.avatar ? (
-                  <img 
-                    src={formData.avatar} 
-                    alt={formData.name} 
-                    className="h-24 w-24 rounded-full object-cover"
-                  />
-                ) : (
-                  formData.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
-                )}
-              </div>
-              <label className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full cursor-pointer hover:bg-blue-700 transition-colors">
-                <Camera className="w-4 h-4" />
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleAvatarChange}
-                  className="hidden"
+              <div className="h-24 w-24 rounded-full bg-blue-600 flex items-center justify-center overflow-hidden">
+                <img
+                  src="/user.png"
+                  alt={profile?.fname[0] || "Profile"}
+                  className="h-25 w-25 rounded-full object-cover"
                 />
-              </label>
+              </div>
             </div>
-            {errors.avatar && (
-              <p className="text-sm text-red-600">{errors.avatar}</p>
-            )}
-            <p className="text-sm text-gray-500 text-center">
-              Click the camera icon to change your profile picture
+          </div>
+
+          <div>
+            <p className="text-sm text-gray-600 mt-10">
+              This fields is read only :
             </p>
-          </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+              {/* Name */}
+              <div className="space-y-1.5">
+                <Label htmlFor="fname" className="text-sm font-medium">
+                  First Name
+                </Label>
+                <Input id="fname" value={profile?.fname} readOnly />
+              </div>
 
-          {/* Form Fields */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-10">
-            {/* Name */}
-            <div className="space-y-1.5">
-              <Label htmlFor="name" className="text-sm font-medium">
-                Full Name *
-              </Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => handleInputChange('name', e.target.value)}
-                placeholder="Enter your full name"
-                className={errors.name ? 'border-red-500' : ''}
-              />
-              {errors.name && (
-                <p className="text-sm text-red-600">{errors.name}</p>
+              <div className="space-y-1.5">
+                <Label htmlFor="lname" className="text-sm font-medium">
+                  Last Name
+                </Label>
+                <Input id="lname" value={profile?.lname} readOnly />
+              </div>
+
+              {/* Contact */}
+              <div className="space-y-1.5">
+                <Label htmlFor="contact" className="text-sm font-medium">
+                  Contact
+                </Label>
+                <Input
+                  id="contact"
+                  type="number"
+                  value={profile?.contact || ""}
+                  readOnly
+                />
+              </div>
+
+              {/* Role/Position */}
+              {profile?.roles[0].name !== "admin" && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label
+                      htmlFor="roleOrPosition"
+                      className="text-sm font-medium"
+                    >
+                      Position
+                    </Label>
+                    <Input
+                      value={profile?.positions?.label || "Not Assigned "}
+                      readOnly
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="department" className="text-sm font-medium">
+                      Department
+                    </Label>
+                    <Input
+                      value={
+                        profile?.departments?.department_name || "Not Assigned "
+                      }
+                      readOnly
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="branch" className="text-sm font-medium">
+                      Branch
+                    </Label>
+                    <Input
+                      value={
+                        profile?.branches[0]?.branch_name || "Not Assigned "
+                      }
+                      readOnly
+                    />
+                  </div>
+                </>
               )}
-            </div>
-
-            {/* Email */}
-            <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-sm font-medium">
-                Email Address
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email || ''}
-                onChange={(e) => handleInputChange('email', e.target.value)}
-                placeholder="Enter your email address"
-                className={errors.email ? 'border-red-500' : ''}
-              />
-              {errors.email && (
-                <p className="text-sm text-red-600">{errors.email}</p>
-              )}
-            </div>
-
-            {/* Role/Position */}
-            <div className="space-y-1.5">
-              <Label htmlFor="roleOrPosition" className="text-sm font-medium">
-                Role/Position
-              </Label>
-              <Select
-                value={formData.roleOrPosition || ''}
-                onValueChange={(value) => handleInputChange('roleOrPosition', value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select your position" />
-                </SelectTrigger>
-                <SelectContent>
-                  {positions.map((position) => (
-                    <SelectItem key={position.id} value={position.id}>
-                      {position.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Department */}
-            <div className="space-y-1.5">
-              <Label htmlFor="department" className="text-sm font-medium">
-                Department
-              </Label>
-              <Input
-                id="department"
-                value={formData.department || ''}
-                onChange={(e) => handleInputChange('department', e.target.value)}
-                placeholder="e.g., Engineering, HR, Sales"
-              />
-            </div>
-
-            {/* Branch */}
-            <div className="space-y-1.5">
-              <Label htmlFor="branch" className="text-sm font-medium">
-                Branch
-              </Label>
-              <Select
-                value={formData.branch || ''}
-                onValueChange={(value) => handleInputChange('branch', value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select your branch" />
-                </SelectTrigger>
-                <SelectContent>
-                  {branches.map((branch) => (
-                    <SelectItem key={branch.id} value={branch.id}>
-                      {branch.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
           </div>
 
-          {/* Additional Information */}
-          <div className="space-y-2">
-            <Label htmlFor="bio" className="text-sm font-medium">
-              Bio/About Me
-            </Label>
-            <Textarea
-              id="bio"
-              value={formData.bio || ''}
-              onChange={(e) => handleInputChange('bio', e.target.value)}
-              placeholder="Tell us a bit about yourself..."
-              rows={3}
-            />
+          <div>
+            <p
+              className="text-sm text-blue-700 mt-10 cursor-pointer"
+              onClick={() => setOpen(!open)}
+            >
+              Edit Account Settings ...
+            </p>
+
+            <div
+              className={`${
+                open ? "max-h-[30vh]" : "max-h-0"
+              } overflow-hidden transition-all duration-400 mt-2`}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Username */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="username" className="text-sm font-medium">
+                    Username
+                  </Label>
+                  <Input
+                    id="username"
+                    value={formData?.username || ""}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        username: e.target.value,
+                      })
+                    }
+                  />
+                  {errors.username && (
+                    <p className="text-sm text-red-500">{errors.username}</p>
+                  )}
+                </div>
+
+                {/* Email */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-sm font-medium">
+                    Email Address
+                  </Label>
+                  <Input
+                    id="email"
+                    value={formData?.email || ""}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        email: e.target.value,
+                      })
+                    }
+                  />
+                  {errors.email && (
+                    <p className="text-sm text-red-500">{errors.email}</p>
+                  )}
+                </div>
+
+                {/* Current Password */}
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">
+                    Current Password
+                  </Label>
+                  <Input
+                    id="current_password"
+                    type="password"
+                    placeholder="******"
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        current_password: e.target.value,
+                      })
+                    }
+                  />
+                  {errors.current_password && (
+                    <p className="text-sm text-red-500">
+                      {errors.current_password}
+                    </p>
+                  )}
+                </div>
+
+                {/* New Password */}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">New Password</Label>
+                  <Input
+                    id="new_password"
+                    type="password"
+                    placeholder="******"
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        new_password: e.target.value,
+                      })
+                    }
+                  />
+                  {errors.new_password && (
+                    <p className="text-sm text-red-500">
+                      {errors.new_password}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">
+                    Confirm Password
+                  </Label>
+                  <Input
+                    id="confirm_password"
+                    type="password"
+                    placeholder="******"
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        confirm_password: e.target.value,
+                      })
+                    }
+                  />
+                  {errors.confirm_password && (
+                    <p className="text-sm text-red-500">
+                      {errors.confirm_password}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Digital Signature */}
+          <Label htmlFor="signature" className="text-sm font-medium">
+            Digital Signature{" "}
+          </Label>
           <div className="space-y-2">
-            <Label htmlFor="signature" className="text-sm font-medium">
-              Digital Signature
-            </Label>
             <SignaturePad
-              value={formData.signature || ''}
-              onChangeAction={(signature) => handleInputChange('signature', signature)}
+              ref={signaturePadRef}
+              value={profile?.signature || formData?.signature || null}
+              onChangeAction={(signature) => {
+                // Only update formData when signature is cleared (null)
+                // For new signatures, they're stored locally until Save is clicked
+                if (signature === null) {
+                  setFormData({ ...formData, signature: null });
+                }
+              }}
               className="w-full"
-              required={false}
+              required={true}
               hasError={false}
+              onRequestReset={handleRequestReset}
             />
-            <p className="text-sm text-gray-500">
-              Update your digital signature for official documents and approvals.
-            </p>
+            {errors.signature && (
+              <p className="text-sm text-red-500">{errors.signature}</p>
+            )}
           </div>
+          <p className="text-sm text-gray-500">
+            Update your digital signature for official documents and approvals.
+            
+           
+          </p>
+          <p className="text-sm text-gray-700"><span className="font-bold">Note:</span> If you are unsure about your new signature, 
+          please do not click Save yet. Clearing your signature will reset it to the default signature</p>
 
           {/* General Error */}
           {errors.general && (
@@ -324,36 +517,6 @@ export default function ProfileModal({
             </div>
           )}
 
-          {/* Action Buttons */}
-          <div className="flex justify-end space-x-4 pt-4 border-t">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleCancel}
-              disabled={isLoading}
-              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 hover:text-white text-white"
-            >
-              <X className="w-5 h-5 text-white" />
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={isLoading}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
-            >
-              {isLoading ? (
-                <>
-                  <LoadingAnimation size="sm" variant="spinner" color="white" />
-                  <span>Saving...</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  <span>Save Changes</span>
-                </>
-              )}
-            </Button>
-          </div>
         </form>
       </DialogContent>
     </Dialog>

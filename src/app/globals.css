@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -44,8 +45,6 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
@@ -77,6 +76,8 @@
   --sidebar-ring: oklch(0.708 0 0);
   --font-geist-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-geist-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
 }
 
 .dark {
@@ -161,6 +162,44 @@
 
 .animation-delay-2000 {
   animation-delay: 2s;
+}
+
+/* Prevent dragging and copying of images/GIFs */
+img[src$=".gif"],
+img[src*=".gif"],
+img[src^="/"] {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  -webkit-user-drag: none !important;
+  -khtml-user-drag: none !important;
+  -moz-user-drag: none !important;
+  -o-user-drag: none !important;
+  user-drag: none !important;
+  pointer-events: auto;
+  -webkit-touch-callout: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Additional protection for all images */
+img {
+  -webkit-user-drag: none !important;
+  -khtml-user-drag: none !important;
+  -moz-user-drag: none !important;
+  -o-user-drag: none !important;
+  user-drag: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+/* Prevent image dragging globally via JavaScript events */
+body {
+  /* Prevent drag operations on images */
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-drag: none;
 }
 
 .animation-delay-4000 {
@@ -258,6 +297,24 @@
   animation: popDown 0.4s cubic-bezier(0.36, 0, 0.66, -0.56);
 }
 
+/* Slide out to right animation for delete */
+@keyframes slideOutRight {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+    background-color: rgb(254 242 242); /* red-50 */
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+    background-color: rgb(254 242 242); /* red-50 */
+  }
+}
+
+.animate-slide-out-right {
+  animation: slideOutRight 0.5s ease-out forwards;
+}
+
 /* Subtle bounce animation for role icons */
 @keyframes bounceGentle {
   0%, 100% {
@@ -270,6 +327,20 @@
 
 .animate-bounce-slow {
   animation: bounceGentle 2s ease-in-out infinite;
+}
+
+/* Small bounce animation for toggle button */
+@keyframes bounceSmall {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.animate-bounce-small {
+  animation: bounceSmall 2s ease-in-out infinite;
 }
 
 /* Date input styling for better cross-browser compatibility */
@@ -328,26 +399,26 @@ input[type="date"]::-moz-calendar-picker-indicator:hover {
     margin: 0.5in;
     size: A4;
   }
-  
+
   /* Ensure print styles are applied */
   body {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  
+
   /* Force print layout for OverallAssessment */
   .overall-assessment-print {
     display: block !important;
     background: white !important;
     color: black !important;
   }
-  
+
   .overall-assessment-print .card {
     display: block !important;
     page-break-inside: auto !important;
     margin-bottom: 15px !important;
   }
-  
+
   /* Force page breaks for specific sections */
   .overall-assessment-print .card:nth-child(3),
   .overall-assessment-print .card:nth-child(4),
@@ -361,19 +432,19 @@ input[type="date"]::-moz-calendar-picker-indicator:hover {
   .overall-assessment-print .card:nth-child(12) {
     page-break-before: always !important;
   }
-  
+
   /* Print Preview Styles */
   .print-preview-container {
     background: #f5f5f5;
     border-radius: 8px;
   }
-  
+
   .print-preview-container .overall-assessment-print {
     background: white;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     border-radius: 8px;
   }
-  
+
   /* Auto-save indicator */
   .auto-save-indicator {
     position: fixed;
@@ -388,22 +459,22 @@ input[type="date"]::-moz-calendar-picker-indicator:hover {
     opacity: 0;
     transition: opacity 0.3s ease;
   }
-  
+
   .auto-save-indicator.show {
     opacity: 1;
   }
-  
+
   /* Hide navigation and other UI elements */
   header, nav, footer, .sidebar, .no-print {
     display: none !important;
   }
-  
+
   /* Hide print button when printing */
   button[onclick*="window.print"],
   .no-print {
     display: none !important;
   }
-  
+
   /* Ensure the print-evaluation content is visible and properly formatted */
   .print-evaluation {
     visibility: visible !important;
@@ -419,11 +490,11 @@ input[type="date"]::-moz-calendar-picker-indicator:hover {
     color: black !important;
     display: block !important;
   }
-  
+
   .print-evaluation * {
     visibility: visible !important;
   }
-  
+
   /* Hide any elements that shouldn't print */
   .print-evaluation .no-print,
   .print-evaluation button,
@@ -431,124 +502,124 @@ input[type="date"]::-moz-calendar-picker-indicator:hover {
   .print-evaluation .dropdown-content {
     display: none !important;
   }
-  
+
   .no-print {
     display: none !important;
   }
-  
+
   .page-break {
     page-break-before: always !important;
   }
-  
+
   /* Ensure all tables print properly */
   .overflow-x-auto {
     overflow: visible !important;
   }
-  
+
   /* Compact spacing for 2-steps-per-page layout */
   .space-y-6 > * + * {
     margin-top: 4px !important;
   }
-  
+
   .space-y-4 > * + * {
     margin-top: 3px !important;
   }
-  
+
   .space-y-2 > * + * {
     margin-top: 2px !important;
   }
-  
+
   /* Reduce margins and padding for compact layout */
   .p-6 {
     padding: 4px !important;
   }
-  
+
   .pt-6 {
     padding-top: 4px !important;
   }
-  
+
   .pb-6 {
     padding-bottom: 4px !important;
   }
-  
+
   .px-6 {
     padding-left: 4px !important;
     padding-right: 4px !important;
   }
-  
+
   .py-6 {
     padding-top: 4px !important;
     padding-bottom: 4px !important;
   }
-  
+
   /* OverallAssessment print layout - Enhanced */
   .overall-assessment-print .card {
     border: 1px solid #000 !important;
   }
-  
+
   .overall-assessment-print .card-content {
     padding: 10px !important;
   }
-  
+
   /* Ensure all text is readable in print */
   .overall-assessment-print * {
     color: black !important;
   }
-  
+
   /* Prevent awkward breaks within tables */
   .overall-assessment-print table {
     page-break-inside: avoid !important;
   }
-  
+
   /* Improve button container for print */
   .flex.justify-between.items-center.pt-20 {
     padding-top: 20px !important;
     margin-top: 20px !important;
     border-top: 1px solid #000 !important;
   }
-  
+
   /* Ensure cards print with proper borders */
   .border {
     border: 1px solid #d1d5db !important;
   }
-  
+
   /* Ensure background colors print */
   .bg-yellow-50 {
     background-color: #fefce8 !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  
+
   .bg-gray-100 {
     background-color: #f3f4f6 !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  
+
   .bg-blue-100 {
     background-color: #dbeafe !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  
+
   .bg-green-100 {
     background-color: #dcfce7 !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  
+
   .bg-red-100 {
     background-color: #fee2e2 !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  
+
   .bg-orange-100 {
     background-color: #fed7aa !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  
+
   /* Compact form elements for 2-steps-per-page layout */
   input, textarea {
     border: 1px solid #000 !important;
@@ -557,13 +628,13 @@ input[type="date"]::-moz-calendar-picker-indicator:hover {
     font-size: 7px !important;
     min-height: 16px !important;
   }
-  
+
   textarea {
     min-height: 30px !important;
     max-height: 50px !important;
     resize: none !important;
   }
-  
+
   /* Specific styles for OverallAssessment form elements */
   .print-evaluation input[type="checkbox"] {
     border: 1px solid #000 !important;
@@ -571,49 +642,49 @@ input[type="date"]::-moz-calendar-picker-indicator:hover {
     width: 12px !important;
     height: 12px !important;
   }
-  
+
   .print-evaluation input[type="date"] {
     border: 1px solid #000 !important;
     background-color: #fff !important;
     padding: 2px !important;
     font-size: 8px !important;
   }
-  
+
   /* Ensure signature fields are visible in print */
   .print-evaluation .bg-yellow-50 {
     background-color: #fefce8 !important;
     border: 1px solid #000 !important;
     min-height: 20px !important;
   }
-  
+
   /* Additional print layout optimizations */
-  
+
   /* Ensure rating badges print properly */
   .px-2.py-1.rounded {
     border: 1px solid #000 !important;
     padding: 2px 4px !important;
     font-size: 10px !important;
   }
-  
+
   /* Improve grid layouts for print */
   .grid {
     display: block !important;
   }
-  
+
   /* Grid layout selectors for print */
   [class*="grid-cols-1"][class*="md:grid-cols-2"] > * {
     margin-bottom: 10px !important;
   }
-  
+
   [class*="grid-cols-1"][class*="md:grid-cols-3"] > * {
     margin-bottom: 10px !important;
   }
-  
+
   /* Ensure text is readable in print */
   .text-gray-900, .text-gray-800, .text-gray-700 {
     color: #000 !important;
   }
-  
+
   /* Compact tables for 2-steps-per-page layout */
   table {
     border-collapse: collapse !important;
@@ -623,7 +694,7 @@ input[type="date"]::-moz-calendar-picker-indicator:hover {
     page-break-inside: avoid !important;
     table-layout: fixed !important;
   }
-  
+
   th, td {
     border: 1px solid #000 !important;
     padding: 3px 2px !important;
@@ -632,105 +703,142 @@ input[type="date"]::-moz-calendar-picker-indicator:hover {
     overflow-wrap: break-word !important;
     hyphens: auto !important;
   }
-  
+
   th {
     background-color: #f3f4f6 !important;
     font-weight: bold !important;
     text-align: left !important;
     font-size: 9px !important;
   }
-  
+
   /* Optimize table column widths for compact layout */
   table th:nth-child(1), table td:nth-child(1) {
     width: 12% !important;
   }
-  
+
   table th:nth-child(2), table td:nth-child(2) {
     width: 18% !important;
   }
-  
+
   table th:nth-child(3), table td:nth-child(3) {
     width: 20% !important;
   }
-  
+
   table th:nth-child(4), table td:nth-child(4) {
     width: 8% !important;
   }
-  
+
   table th:nth-child(5), table td:nth-child(5) {
     width: 12% !important;
   }
-  
+
   table th:nth-child(6), table td:nth-child(6) {
     width: 30% !important;
   }
-  
+
   /* Ensure cards print with borders */
   .card {
     border: 1px solid #000 !important;
     margin-bottom: 20px !important;
     page-break-inside: avoid !important;
   }
-  
+
   /* Compact text sizing for 2-steps-per-page layout */
   h1 {
     font-size: 14px !important;
     margin-bottom: 6px !important;
     line-height: 1.2 !important;
   }
-  
+
   h2 {
     font-size: 12px !important;
     margin-bottom: 4px !important;
     line-height: 1.2 !important;
   }
-  
+
   h3 {
     font-size: 11px !important;
     margin-bottom: 4px !important;
     line-height: 1.2 !important;
   }
-  
+
   h4 {
     font-size: 10px !important;
     margin-bottom: 3px !important;
     line-height: 1.2 !important;
   }
-  
+
   h5 {
     font-size: 9px !important;
     margin-bottom: 3px !important;
     line-height: 1.2 !important;
   }
-  
+
   /* Compact paragraph and text elements */
   p {
     font-size: 8px !important;
     line-height: 1.2 !important;
     margin-bottom: 3px !important;
   }
-  
+
   .text-sm {
     font-size: 7px !important;
   }
-  
+
   .text-xs {
     font-size: 6px !important;
   }
-  
+
   /* Improve button spacing for print */
   .flex.gap-4 {
     gap: 10px !important;
   }
-  
+
   /* Prevent awkward breaks */
   .no-break {
     page-break-inside: avoid !important;
   }
-  
+
   .yellow-highlight {
     background-color: #ffff99 !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+}
+
+/* Fix calendar date picker click alignment - ensure buttons fill cells exactly */
+[data-slot="popover-content"] [data-slot="calendar"] table {
+  border-collapse: collapse !important;
+  border-spacing: 0 !important;
+  table-layout: fixed !important;
+  width: 100% !important;
+}
+
+[data-slot="popover-content"] [data-slot="calendar"] table tbody tr {
+  display: table-row !important;
+}
+
+[data-slot="popover-content"] [data-slot="calendar"] table td {
+  padding: 0 !important;
+  margin: 0 !important;
+  position: relative !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+  width: calc(100% / 7) !important;
+}
+
+[data-slot="popover-content"] [data-slot="calendar"] table td button[data-day] {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  box-sizing: border-box !important;
 }
